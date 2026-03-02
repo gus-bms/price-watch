@@ -2,14 +2,16 @@
 
 Local price-tracking runner that polls product pages and alerts when a target price is met.
 Runner is implemented with NestJS + TypeScript.
+Runtime config and state are now persisted in MySQL.
 
 ## Runner Architecture (NestJS)
 - Bootstrap: Nest application context (`src/main.ts`) for CLI-style execution.
-- Modules/services: config loading, state persistence, HTTP fetcher, parser, notifier, scheduler.
+- API server: `src/main.ts --api` starts HTTP API for UI.
+- Modules/services: DB-backed config loading, state persistence, HTTP fetcher, parser, notifier, scheduler.
 - Scheduler: per-item timers with exponential backoff + jitter on failures.
 - Fetcher: HTTP GET with timeout and custom user-agent.
 - Parser: regex or jsonPath (for JSON responses).
-- State: local JSON file to avoid repeat notifications.
+- State: MySQL tables (`watch_state`, `watch_check_run`, `watch_notification`).
 - Notifier: console (replaceable with email/Slack/webhook later).
 
 ## Config
@@ -39,6 +41,7 @@ npm install
 npm run start
 npm run once
 npm run check-config
+npm run api
 ```
 
 Production build:
@@ -48,12 +51,12 @@ npm run build
 npm run start:prod
 ```
 
-Optional flags:
-- `--config /path/to/watchlist.json`
-- `--state /path/to/state.json`
+Environment variables (see `.env.example`):
+- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+- `APP_HOST`, `APP_PORT`
 
-## UI (Next.js)
-Dashboard lives in `ui/` and reads the same local JSON files.
+## UI (React + Vite)
+Dashboard lives in `ui/` and consumes API endpoints from the root service.
 
 ```bash
 cd ui
@@ -61,9 +64,9 @@ npm install
 npm run dev
 ```
 
-The UI expects:
-- `config/watchlist.json`
-- `data/state.json`
+Default ports:
+- API: `http://localhost:4000`
+- UI: `http://localhost:5173`
 
 ## Limitations
 - HTML parsing is regex-based; no CSS selectors in MVP.

@@ -1,0 +1,23 @@
+{
+  "global": {
+    "defaultIntervalMinutes": 5,
+    "timeoutMs": 15000,
+    "userAgent": "price-watch/0.1 (+local)",
+    "maxBackoffMinutes": 60,
+    "minNotifyIntervalMinutes": 60
+  },
+  "items": [
+    {
+      "id": "belmar-jacket-blue-s",
+      "name": "Belmar Jacket (Blue S)",
+      "url": "https://us.carhartt-wip.com/en-us/products/belmar-jacket-blue-rinsed-91?Color=Blue&Size=S",
+      "targetPrice": 200,
+      "currency": "USD",
+      "parser": {
+        "type": "regex",
+        "pattern": "Belmar Jacket[\\s\\S]*?\\$([0-9,.]+)"
+      },
+      "intervalMinutes": 5
+    }
+  ]
+}
