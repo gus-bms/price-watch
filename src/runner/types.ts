@@ -1,7 +1,7 @@
 export type RegexParser = {
   type: "regex";
   pattern: string;
-  flags?: string;
+  flags?: string | undefined;
 };
 
 export type JsonPathParser = {
@@ -10,6 +10,10 @@ export type JsonPathParser = {
 };
 
 export type ParserConfig = RegexParser | JsonPathParser;
+
+export type CheckConfidence = "high" | "medium" | "low";
+
+export type CheckTriggerSource = "scheduled" | "manual" | "api_check";
 
 export type GlobalConfig = {
   defaultIntervalMinutes: number;
@@ -24,7 +28,7 @@ export type WatchItem = {
   name: string;
   url: string;
   targetPrice: number;
-  currency?: string;
+  currency?: string | undefined;
   parser: ParserConfig;
   intervalMinutes: number;
 };
@@ -35,12 +39,12 @@ export type WatchConfig = {
 };
 
 export type ItemState = {
-  failures?: number;
-  lastError?: string;
-  lastPrice?: number;
-  lastCheckedAt?: number;
-  lastNotifiedAt?: number;
-  lastNotifiedPrice?: number;
+  failures?: number | undefined;
+  lastError?: string | undefined;
+  lastPrice?: number | undefined;
+  lastCheckedAt?: number | undefined;
+  lastNotifiedAt?: number | undefined;
+  lastNotifiedPrice?: number | undefined;
 };
 
 export type RunnerState = {
@@ -50,5 +54,4 @@ export type RunnerState = {
 export type RunnerContext = {
   global: GlobalConfig;
   state: RunnerState;
-  statePath: string;
 };

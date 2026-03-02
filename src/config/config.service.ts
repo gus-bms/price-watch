@@ -1,10 +1,9 @@
-import { Injectable } from "@nestjs/common";
-import { readFile } from "node:fs/promises";
+import { Inject, Injectable } from "@nestjs/common";
+import { type RowDataPacket } from "mysql2/promise";
+import { DatabaseService } from "../database/database.service";
 import {
   type GlobalConfig,
-  type JsonPathParser,
   type ParserConfig,
-  type RegexParser,
   type WatchConfig,
   type WatchItem
 } from "../runner/types";
@@ -19,221 +18,197 @@ const DEFAULT_GLOBAL: GlobalConfig = {
 
 @Injectable()
 export class ConfigService {
-  async loadConfig(configPath: string): Promise<WatchConfig> {
-    const raw = await readFile(configPath, "utf-8");
-    const parsed = this.parseConfigRoot(raw);
-    const global = this.normalizeGlobal(parsed.global);
-    const items = this.normalizeItems(parsed.items, global);
-    return { global, items };
-  }
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  private parseConfigRoot(raw: string): {
-    global?: unknown;
-    items?: unknown;
-  } {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) {
-      throw new Error("config root must be an object");
-    }
-
-    return {
-      global: parsed.global,
-      items: parsed.items
-    };
-  }
-
-  private normalizeGlobal(input: unknown): GlobalConfig {
-    if (input === undefined) {
-      return { ...DEFAULT_GLOBAL };
-    }
-
-    if (!isRecord(input)) {
-      throw new Error("config.global must be an object");
-    }
-
-    const defaultIntervalMinutes = toPositiveNumber(
-      input.defaultIntervalMinutes,
-      "global.defaultIntervalMinutes",
-      DEFAULT_GLOBAL.defaultIntervalMinutes
+  async loadConfig(): Promise<WatchConfig> {
+    const globalRows = await this.database.queryRows<GlobalRow[]>(
+      `SELECT
+        default_interval_minutes,
+        timeout_ms,
+        user_agent,
+        max_backoff_minutes,
+        min_notify_interval_minutes
+       FROM watch_global_config
+       WHERE id = 1
+       LIMIT 1`
     );
 
-    const timeoutMs = toPositiveNumber(
-      input.timeoutMs,
-      "global.timeoutMs",
-      DEFAULT_GLOBAL.timeoutMs
-    );
-
-    const userAgent =
-      input.userAgent === undefined
-        ? DEFAULT_GLOBAL.userAgent
-        : toNonEmptyString(input.userAgent, "global.userAgent");
-
-    const maxBackoffMinutes = toPositiveNumber(
-      input.maxBackoffMinutes,
-      "global.maxBackoffMinutes",
-      DEFAULT_GLOBAL.maxBackoffMinutes
-    );
-
-    const minNotifyIntervalMinutes = toPositiveNumber(
-      input.minNotifyIntervalMinutes,
-      "global.minNotifyIntervalMinutes",
-      DEFAULT_GLOBAL.minNotifyIntervalMinutes
-    );
-
-    return {
-      defaultIntervalMinutes,
-      timeoutMs,
-      userAgent,
-      maxBackoffMinutes,
-      minNotifyIntervalMinutes
-    };
-  }
-
-  private normalizeItems(
-    items: unknown,
-    global: GlobalConfig
-  ): WatchItem[] {
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new Error("config.items must be a non-empty array");
-    }
-
-    const seen = new Set<string>();
-
-    return items.map((item, index) => {
-      if (!isRecord(item)) {
-        throw new Error(`items[${index}] must be an object`);
-      }
-
-      const id = toNonEmptyString(item.id, `items[${index}].id`);
-      if (seen.has(id)) {
-        throw new Error(
-          `items[${index}].id must be unique (duplicate: ${id})`
-        );
-      }
-      seen.add(id);
-
-      const url = toNonEmptyString(item.url, `items[${index}].url`);
-      if (!/^https?:\/\//i.test(url)) {
-        throw new Error(`items[${index}].url must be a valid http(s) URL`);
-      }
-
-      const targetPrice = toFiniteNumber(
-        item.targetPrice,
-        `items[${index}].targetPrice`
-      );
-
-      const parser = this.normalizeParser(item.parser, index);
-
-      const intervalMinutes = toPositiveNumber(
-        item.intervalMinutes,
-        `items[${index}].intervalMinutes`,
-        global.defaultIntervalMinutes
-      );
-
-      const name =
-        item.name === undefined
-          ? id
-          : toNonEmptyString(item.name, `items[${index}].name`);
-
-      const currency =
-        item.currency === undefined
-          ? undefined
-          : toNonEmptyString(item.currency, `items[${index}].currency`);
-
-      return {
+    const itemRows = await this.database.queryRows<ItemRow[]>(
+      `SELECT
         id,
         name,
         url,
-        targetPrice,
+        target_price,
         currency,
+        interval_minutes
+       FROM watch_item
+       WHERE enabled = 1
+       ORDER BY created_at ASC, id ASC`
+    );
+
+    if (itemRows.length === 0) {
+      throw new Error("watch_item table has no enabled rows");
+    }
+
+    const parserRows = await this.loadParsers(itemRows.map((row) => row.id));
+    const parserByWatchId = new Map<string, ParserConfig>();
+
+    for (const row of parserRows) {
+      if (parserByWatchId.has(row.watch_id)) {
+        continue;
+      }
+
+      parserByWatchId.set(row.watch_id, toParserConfig(row));
+    }
+
+    const firstGlobalRow = globalRows[0];
+    const global = firstGlobalRow
+      ? toGlobalConfig(firstGlobalRow)
+      : { ...DEFAULT_GLOBAL };
+    assertGlobalConfig(global);
+
+    const items: WatchItem[] = itemRows.map((row) => {
+      const parser = parserByWatchId.get(row.id);
+
+      if (!parser) {
+        throw new Error(`watch_item '${row.id}' does not have an enabled parser`);
+      }
+
+      const targetPrice = Number(row.target_price);
+      const intervalMinutes = Number(row.interval_minutes);
+
+      if (!Number.isFinite(targetPrice)) {
+        throw new Error(`watch_item '${row.id}' has invalid target_price`);
+      }
+
+      if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) {
+        throw new Error(`watch_item '${row.id}' has invalid interval_minutes`);
+      }
+
+      return {
+        id: row.id,
+        name: row.name,
+        url: row.url,
+        targetPrice,
+        currency: row.currency ?? undefined,
         parser,
         intervalMinutes
       };
     });
+
+    return { global, items };
   }
 
-  private normalizeParser(parser: unknown, index: number): ParserConfig {
-    if (!isRecord(parser)) {
-      throw new Error(`items[${index}].parser is required`);
-    }
+  private async loadParsers(watchIds: string[]): Promise<ParserRow[]> {
+    const placeholders = watchIds.map(() => "?").join(", ");
 
-    const parserType = toNonEmptyString(parser.type, `items[${index}].parser.type`);
-
-    if (parserType === "regex") {
-      const pattern = toNonEmptyString(
-        parser.pattern,
-        `items[${index}].parser.pattern`
-      );
-      const flags =
-        parser.flags === undefined
-          ? ""
-          : toStringValue(parser.flags, `items[${index}].parser.flags`);
-
-      const regexParser: RegexParser = {
-        type: "regex",
+    return this.database.queryRows<ParserRow[]>(
+      `SELECT
+        watch_id,
+        parser_type,
         pattern,
-        flags
-      };
-
-      return regexParser;
-    }
-
-    if (parserType === "jsonPath") {
-      const path = toNonEmptyString(parser.path, `items[${index}].parser.path`);
-
-      const jsonPathParser: JsonPathParser = {
-        type: "jsonPath",
-        path
-      };
-
-      return jsonPathParser;
-    }
-
-    throw new Error(
-      `items[${index}].parser.type must be 'regex' or 'jsonPath'`
+        flags,
+        json_path,
+        position
+       FROM watch_parser
+       WHERE enabled = 1
+         AND watch_id IN (${placeholders})
+       ORDER BY watch_id ASC, position ASC`,
+      watchIds
     );
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+type GlobalRow = RowDataPacket & {
+  default_interval_minutes: number;
+  timeout_ms: number;
+  user_agent: string;
+  max_backoff_minutes: number;
+  min_notify_interval_minutes: number;
+};
+
+type ItemRow = RowDataPacket & {
+  id: string;
+  name: string;
+  url: string;
+  target_price: number | string;
+  currency: string | null;
+  interval_minutes: number;
+};
+
+type ParserRow = RowDataPacket & {
+  watch_id: string;
+  parser_type: "regex" | "jsonPath";
+  pattern: string | null;
+  flags: string;
+  json_path: string | null;
+  position: number;
+};
+
+function toGlobalConfig(row: GlobalRow): GlobalConfig {
+  return {
+    defaultIntervalMinutes: Number(row.default_interval_minutes),
+    timeoutMs: Number(row.timeout_ms),
+    userAgent: row.user_agent,
+    maxBackoffMinutes: Number(row.max_backoff_minutes),
+    minNotifyIntervalMinutes: Number(row.min_notify_interval_minutes)
+  };
 }
 
-function toStringValue(value: unknown, fieldName: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`${fieldName} must be a string`);
-  }
-  return value;
-}
+function toParserConfig(row: ParserRow): ParserConfig {
+  if (row.parser_type === "regex") {
+    if (!row.pattern) {
+      throw new Error(`watch_item '${row.watch_id}' has regex parser without pattern`);
+    }
 
-function toNonEmptyString(value: unknown, fieldName: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`${fieldName} is required`);
+    return {
+      type: "regex",
+      pattern: row.pattern,
+      flags: row.flags || ""
+    };
   }
-  return value.trim();
-}
 
-function toFiniteNumber(value: unknown, fieldName: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`${fieldName} must be a number`);
+  if (!row.json_path) {
+    throw new Error(`watch_item '${row.watch_id}' has jsonPath parser without path`);
   }
-  return parsed;
+
+  return {
+    type: "jsonPath",
+    path: row.json_path
+  };
 }
 
 function toPositiveNumber(
-  value: unknown,
+  value: number,
   fieldName: string,
   fallback: number
 ): number {
-  if (value === undefined) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
+  const parsed = Number(value ?? fallback);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${fieldName} must be > 0`);
   }
 
   return parsed;
+}
+
+function assertGlobalConfig(config: GlobalConfig): void {
+  toPositiveNumber(
+    config.defaultIntervalMinutes,
+    "global.defaultIntervalMinutes",
+    DEFAULT_GLOBAL.defaultIntervalMinutes
+  );
+  toPositiveNumber(config.timeoutMs, "global.timeoutMs", DEFAULT_GLOBAL.timeoutMs);
+  toPositiveNumber(
+    config.maxBackoffMinutes,
+    "global.maxBackoffMinutes",
+    DEFAULT_GLOBAL.maxBackoffMinutes
+  );
+  toPositiveNumber(
+    config.minNotifyIntervalMinutes,
+    "global.minNotifyIntervalMinutes",
+    DEFAULT_GLOBAL.minNotifyIntervalMinutes
+  );
+  if (!config.userAgent.trim()) {
+    throw new Error("global.userAgent is required");
+  }
 }

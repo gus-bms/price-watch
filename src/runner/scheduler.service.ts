@@ -1,9 +1,10 @@
-import { Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { StateService } from "../storage/state.service";
 import {
+  type CheckTriggerSource,
   type GlobalConfig,
   type ItemState,
   type RunnerContext,
@@ -15,15 +16,19 @@ export class SchedulerService implements OnModuleDestroy {
   private readonly timers = new Set<NodeJS.Timeout>();
 
   constructor(
+    @Inject(HttpFetcherService)
     private readonly fetcher: HttpFetcherService,
+    @Inject(ConsoleNotifierService)
     private readonly notifier: ConsoleNotifierService,
+    @Inject(PriceParserService)
     private readonly parser: PriceParserService,
+    @Inject(StateService)
     private readonly stateService: StateService
   ) {}
 
   async runOnce(items: WatchItem[], ctx: RunnerContext): Promise<void> {
     for (const item of items) {
-      await this.checkItem(item, ctx);
+      await this.checkItem(item, ctx, "manual");
     }
   }
 
@@ -61,7 +66,7 @@ export class SchedulerService implements OnModuleDestroy {
     ctx: RunnerContext
   ): Promise<void> {
     try {
-      const itemState = await this.checkItem(item, ctx);
+      const itemState = await this.checkItem(item, ctx, "scheduled");
       const nextDelay = this.computeDelayMs(item, itemState, ctx.global);
       this.scheduleNext(item, ctx, nextDelay);
     } catch (error) {
@@ -75,23 +80,35 @@ export class SchedulerService implements OnModuleDestroy {
     }
   }
 
-  private async checkItem(item: WatchItem, ctx: RunnerContext): Promise<ItemState> {
+  private async checkItem(
+    item: WatchItem,
+    ctx: RunnerContext,
+    triggerSource: CheckTriggerSource
+  ): Promise<ItemState> {
     const itemState = this.stateService.getItemState(ctx.state, item.id);
-    const now = Date.now();
+    const startedAt = Date.now();
+    let parsedPrice: number | undefined;
+    let errorMessage: string | undefined;
+    let responseContentType: string | undefined;
+
+    itemState.lastCheckedAt = startedAt;
 
     try {
-      const { body } = await this.fetcher.fetchContent(item.url, {
+      const { body, contentType } = await this.fetcher.fetchContent(item.url, {
         userAgent: ctx.global.userAgent,
         timeoutMs: ctx.global.timeoutMs
       });
+      responseContentType = contentType;
 
       const price = this.parser.parsePrice(body, item.parser);
+      parsedPrice = price;
+
       itemState.lastPrice = price;
-      itemState.lastCheckedAt = now;
       itemState.lastError = undefined;
 
       const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
       const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
+      const now = Date.now();
       const canNotify = now - lastNotifiedAt >= minNotifyMs;
 
       if (price <= item.targetPrice && canNotify) {
@@ -102,6 +119,15 @@ export class SchedulerService implements OnModuleDestroy {
           url: item.url
         });
 
+        await this.stateService.recordNotification({
+          watchId: item.id,
+          price,
+          targetPriceSnapshot: item.targetPrice,
+          currency: item.currency,
+          channel: "console",
+          status: "sent"
+        });
+
         itemState.lastNotifiedAt = now;
         itemState.lastNotifiedPrice = price;
       }
@@ -109,10 +135,24 @@ export class SchedulerService implements OnModuleDestroy {
       itemState.failures = 0;
     } catch (error) {
       itemState.failures = Number(itemState.failures ?? 0) + 1;
-      itemState.lastError = error instanceof Error ? error.message : String(error);
+      errorMessage = error instanceof Error ? error.message : String(error);
+      itemState.lastError = errorMessage;
     }
 
-    await this.stateService.saveState(ctx.statePath, ctx.state);
+    const finishedAt = Date.now();
+
+    await this.stateService.saveItemState(item.id, itemState);
+    await this.stateService.recordCheckRun({
+      watchId: item.id,
+      triggerSource,
+      startedAt,
+      finishedAt,
+      success: errorMessage === undefined,
+      parsedPrice,
+      errorMessage,
+      responseContentType
+    });
+
     return itemState;
   }
 

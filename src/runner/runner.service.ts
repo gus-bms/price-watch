@@ -1,5 +1,4 @@
-import { Injectable } from "@nestjs/common";
-import { join, resolve } from "node:path";
+import { Inject, Injectable } from "@nestjs/common";
 import { ConfigService } from "../config/config.service";
 import { SchedulerService } from "./scheduler.service";
 import { StateService } from "../storage/state.service";
@@ -8,8 +7,6 @@ import { type RunnerContext } from "./types";
 export type RunnerMode = "validate" | "once" | "watch";
 
 type CliOptions = {
-  configPath: string;
-  statePath: string;
   once: boolean;
   validate: boolean;
 };
@@ -17,20 +14,24 @@ type CliOptions = {
 @Injectable()
 export class RunnerService {
   constructor(
+    @Inject(ConfigService)
     private readonly configService: ConfigService,
+    @Inject(StateService)
     private readonly stateService: StateService,
+    @Inject(SchedulerService)
     private readonly schedulerService: SchedulerService
   ) {}
 
   async run(argList: string[]): Promise<RunnerMode> {
     const options = this.parseCli(argList);
-    const config = await this.configService.loadConfig(options.configPath);
-    const state = await this.stateService.loadState(options.statePath);
+    const config = await this.configService.loadConfig();
+    const state = await this.stateService.loadState(
+      config.items.map((item) => item.id)
+    );
 
     const ctx: RunnerContext = {
       global: config.global,
-      state,
-      statePath: options.statePath
+      state
     };
 
     if (options.validate) {
@@ -48,35 +49,9 @@ export class RunnerService {
   }
 
   private parseCli(argList: string[]): CliOptions {
-    const rootDir = resolve(process.cwd());
-
-    const configPath =
-      this.getArgValue(argList, "--config") ??
-      join(rootDir, "config", "watchlist.json");
-
-    const statePath =
-      this.getArgValue(argList, "--state") ??
-      join(rootDir, "data", "state.json");
-
     return {
-      configPath,
-      statePath,
       once: argList.includes("--once"),
       validate: argList.includes("--validate")
     };
-  }
-
-  private getArgValue(argList: string[], name: string): string | null {
-    const index = argList.indexOf(name);
-    if (index === -1) {
-      return null;
-    }
-
-    const value = argList[index + 1];
-    if (!value || value.startsWith("--")) {
-      return null;
-    }
-
-    return value;
   }
 }

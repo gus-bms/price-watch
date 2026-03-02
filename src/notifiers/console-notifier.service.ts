@@ -4,7 +4,7 @@ import { type WatchItem } from "../runner/types";
 export type NotificationPayload = {
   item: WatchItem;
   price: number;
-  currency?: string;
+  currency?: string | undefined;
   url: string;
 };
 
