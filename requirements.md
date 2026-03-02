@@ -14,3 +14,11 @@
   - Keep behavior while separating concerns into feature-centric files.
   - Make commits in meaningful units.
 - Status: done
+
+## 2026-03-02 15:42:37 KST
+- Request: Split all remaining local changes into work-unit commits and push everything.
+- Expected result:
+  - Group remaining modified/untracked/deleted files by task.
+  - Commit each group with clear message.
+  - Push commits to `origin/main`.
+- Status: done

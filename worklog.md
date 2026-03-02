@@ -23,3 +23,20 @@
   - Commit `78166d6`: split monolithic `App.tsx` into `use-watch-items` hook + `AddItemModal`/`WatchItemCard` components.
   - Verified with `cd ui && npm run build` (pass).
 - Result: completed
+
+## 2026-03-02 15:42:37 KST
+- Task: Start grouping all remaining uncommitted changes into work-unit commits and push.
+- Planned changes:
+  - Review remaining diff by backend/db/api/ui/docs groups.
+  - Commit each group separately.
+  - Push grouped commits to `origin/main`.
+- Result: completed
+
+## 2026-03-02 15:42:37 KST
+- Task: Complete grouped commit sequence for remaining changes.
+- Changes:
+  - Commit `45a2c39`: backend MySQL persistence + API server integration.
+  - Commit `a43cedc`: frontend migration from Next.js to Vite.
+  - Commit `c9944b0`: README/reference docs and sample config updates.
+  - Commit `7b90d97`: repository workflow guide and Biome config.
+- Result: completed
