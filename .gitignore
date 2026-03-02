@@ -15,9 +15,10 @@ build/
 coverage/
 *.tsbuildinfo
 
-# next.js
+# frontend outputs
 ui/.next/
 ui/out/
+ui/dist/
 ui/next-env.d.ts
 
 # environment files
