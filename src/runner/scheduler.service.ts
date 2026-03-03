@@ -1,6 +1,8 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "../config/config.service";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
+import { SlackNotifierService } from "../notifiers/slack-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { StockParserService } from "../parsers/stock-parser.service";
 import { StateService } from "../storage/state.service";
@@ -12,21 +14,30 @@ import {
   type WatchItem
 } from "./types";
 
+/** DB에서 아이템 목록을 다시 로드하는 주기 (ms) */
+const CONFIG_RELOAD_INTERVAL_MS = 60_000;
+
 @Injectable()
 export class SchedulerService implements OnModuleDestroy {
   private readonly timers = new Set<NodeJS.Timeout>();
+  /** 현재 스케줄링 중인 아이템 ID 목록 */
+  private readonly trackedItemIds = new Set<string>();
 
   constructor(
     @Inject(HttpFetcherService)
     private readonly fetcher: HttpFetcherService,
     @Inject(ConsoleNotifierService)
     private readonly notifier: ConsoleNotifierService,
+    @Inject(SlackNotifierService)
+    private readonly slackNotifier: SlackNotifierService,
     @Inject(PriceParserService)
     private readonly parser: PriceParserService,
     @Inject(StockParserService)
     private readonly stockParser: StockParserService,
     @Inject(StateService)
-    private readonly stateService: StateService
+    private readonly stateService: StateService,
+    @Inject(ConfigService)
+    private readonly configService: ConfigService
   ) {}
 
   async runOnce(items: WatchItem[], ctx: RunnerContext): Promise<void> {
@@ -40,8 +51,12 @@ export class SchedulerService implements OnModuleDestroy {
     console.log(`[${timestamp}] Watching ${items.length} item(s).`);
 
     for (const item of items) {
+      this.trackedItemIds.add(item.id);
       this.scheduleNext(item, ctx, 0);
     }
+
+    // UI에서 추가된 새 아이템을 주기적으로 감지
+    this.startConfigReloader(ctx);
   }
 
   onModuleDestroy(): void {
@@ -49,6 +64,38 @@ export class SchedulerService implements OnModuleDestroy {
       clearTimeout(timer);
     }
     this.timers.clear();
+    this.trackedItemIds.clear();
+  }
+
+  private startConfigReloader(ctx: RunnerContext): void {
+    const timer = setInterval(() => {
+      void this.reloadNewItems(ctx);
+    }, CONFIG_RELOAD_INTERVAL_MS) as unknown as NodeJS.Timeout;
+
+    this.timers.add(timer);
+  }
+
+  private async reloadNewItems(ctx: RunnerContext): Promise<void> {
+    try {
+      const config = await this.configService.loadConfig();
+
+      for (const item of config.items) {
+        if (this.trackedItemIds.has(item.id)) continue;
+
+        // 새 아이템 발견 → 상태 로드 후 스케줄 등록
+        const newState = await this.stateService.loadState([item.id]);
+        ctx.state.items[item.id] = newState.items[item.id] ?? {};
+        this.trackedItemIds.add(item.id);
+        this.scheduleNext(item, ctx, 0);
+
+        console.log(
+          `[${new Date().toISOString()}] New item detected, scheduling: ${item.name}`
+        );
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[${new Date().toISOString()}] Config reload error: ${msg}`);
+    }
   }
 
   private scheduleNext(
@@ -113,6 +160,7 @@ export class SchedulerService implements OnModuleDestroy {
       // 재입고: 이전에 품절이었고 지금 재고 있음으로 전환된 경우 알림
       if (inStock === true && previousInStock === false) {
         this.notifier.notifyRestock({ item, url: item.url });
+        void this.slackNotifier.notifyRestock({ item, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
@@ -144,6 +192,13 @@ export class SchedulerService implements OnModuleDestroy {
 
         if (price <= item.targetPrice && canNotify) {
           this.notifier.notify({
+            item,
+            price,
+            currency: item.currency,
+            url: item.url
+          });
+
+          void this.slackNotifier.notify({
             item,
             price,
             currency: item.currency,

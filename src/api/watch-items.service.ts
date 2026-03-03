@@ -527,7 +527,7 @@ export class WatchItemsService {
     }
 
     const placeholders = watchIds.map(() => "?").join(", ");
-    const rows = await this.database.queryRows<ParserRow>(
+    const rows = await this.database.queryRows<ParserRow[]>(
       `SELECT
         id,
         watch_id,
