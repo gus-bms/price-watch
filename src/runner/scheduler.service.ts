@@ -2,6 +2,7 @@ import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
+import { StockParserService } from "../parsers/stock-parser.service";
 import { StateService } from "../storage/state.service";
 import {
   type CheckTriggerSource,
@@ -22,6 +23,8 @@ export class SchedulerService implements OnModuleDestroy {
     private readonly notifier: ConsoleNotifierService,
     @Inject(PriceParserService)
     private readonly parser: PriceParserService,
+    @Inject(StockParserService)
+    private readonly stockParser: StockParserService,
     @Inject(StateService)
     private readonly stateService: StateService
   ) {}
@@ -100,39 +103,69 @@ export class SchedulerService implements OnModuleDestroy {
       });
       responseContentType = contentType;
 
-      const price = this.parser.parsePrice(body, item.parser);
-      parsedPrice = price;
+      // ── 재고 확인 ──────────────────────────────────────────────
+      const stockPatterns = item.stockPatterns ?? [];
+      const inStock = this.stockParser.isInStock(body, stockPatterns);
 
-      itemState.lastPrice = price;
-      itemState.lastError = undefined;
+      const previousInStock = itemState.lastInStock;
+      itemState.lastInStock = inStock;
 
-      const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
-      const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
-      const now = Date.now();
-      const canNotify = now - lastNotifiedAt >= minNotifyMs;
-
-      if (price <= item.targetPrice && canNotify) {
-        this.notifier.notify({
-          item,
-          price,
-          currency: item.currency,
-          url: item.url
-        });
+      // 재입고: 이전에 품절이었고 지금 재고 있음으로 전환된 경우 알림
+      if (inStock === true && previousInStock === false) {
+        this.notifier.notifyRestock({ item, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
-          price,
+          notificationType: "restock",
+          price: itemState.lastPrice ?? 0,
           targetPriceSnapshot: item.targetPrice,
           currency: item.currency,
           channel: "console",
           status: "sent"
         });
-
-        itemState.lastNotifiedAt = now;
-        itemState.lastNotifiedPrice = price;
       }
 
-      itemState.failures = 0;
+      // 품절 확인됨 → 가격 체크 스킵
+      if (inStock === false) {
+        itemState.lastError = undefined;
+        itemState.failures = 0;
+      } else {
+        // ── 가격 확인 ──────────────────────────────────────────────
+        const price = this.parser.parsePrice(body, item.parser);
+        parsedPrice = price;
+
+        itemState.lastPrice = price;
+        itemState.lastError = undefined;
+
+        const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
+        const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
+        const now = Date.now();
+        const canNotify = now - lastNotifiedAt >= minNotifyMs;
+
+        if (price <= item.targetPrice && canNotify) {
+          this.notifier.notify({
+            item,
+            price,
+            currency: item.currency,
+            url: item.url
+          });
+
+          await this.stateService.recordNotification({
+            watchId: item.id,
+            notificationType: "price_alert",
+            price,
+            targetPriceSnapshot: item.targetPrice,
+            currency: item.currency,
+            channel: "console",
+            status: "sent"
+          });
+
+          itemState.lastNotifiedAt = now;
+          itemState.lastNotifiedPrice = price;
+        }
+
+        itemState.failures = 0;
+      }
     } catch (error) {
       itemState.failures = Number(itemState.failures ?? 0) + 1;
       errorMessage = error instanceof Error ? error.message : String(error);

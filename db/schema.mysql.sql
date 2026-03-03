@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS watch_item (
 CREATE TABLE IF NOT EXISTS watch_parser (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   watch_id VARCHAR(128) NOT NULL,
+  role ENUM('price', 'stock') NOT NULL DEFAULT 'price',
   position INT UNSIGNED NOT NULL,
   tier ENUM('primary', 'secondary', 'fallback') NULL,
   parser_type ENUM('regex', 'jsonPath') NOT NULL,
@@ -59,13 +60,13 @@ CREATE TABLE IF NOT EXISTS watch_parser (
   CONSTRAINT fk_parser_watch
     FOREIGN KEY (watch_id) REFERENCES watch_item(id)
     ON DELETE CASCADE,
-  CONSTRAINT uq_parser_watch_position UNIQUE (watch_id, position),
+  CONSTRAINT uq_parser_watch_role_position UNIQUE (watch_id, role, position),
   CONSTRAINT chk_parser_payload CHECK (
     (parser_type = 'regex' AND pattern IS NOT NULL AND json_path IS NULL) OR
     (parser_type = 'jsonPath' AND json_path IS NOT NULL AND pattern IS NULL)
   ),
 
-  KEY idx_parser_watch_enabled_pos (watch_id, enabled, position)
+  KEY idx_parser_watch_enabled_pos (watch_id, role, enabled, position)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS watch_state (
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS watch_state (
   last_matched_parser_id BIGINT UNSIGNED NULL,
   last_confidence ENUM('high', 'medium', 'low') NULL,
   last_verified_by_recheck BOOLEAN NULL,
+  last_in_stock BOOLEAN NULL,
   next_run_at DATETIME(3) NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
     ON UPDATE CURRENT_TIMESTAMP(3),
@@ -135,6 +137,7 @@ CREATE TABLE IF NOT EXISTS watch_notification (
   price DECIMAL(18,4) NOT NULL,
   target_price_snapshot DECIMAL(18,4) NOT NULL,
   currency VARCHAR(16) NULL,
+  notification_type ENUM('price_alert', 'restock') NOT NULL DEFAULT 'price_alert',
   channel ENUM('console', 'slack', 'email', 'webhook') NOT NULL DEFAULT 'console',
   status ENUM('sent', 'failed', 'skipped') NOT NULL DEFAULT 'sent',
   message TEXT NULL,

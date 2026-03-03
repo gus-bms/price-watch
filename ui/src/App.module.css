@@ -150,6 +150,10 @@
   gap: 10px;
 }
 
+.pricesDimmed {
+  opacity: 0.4;
+}
+
 .priceCol {
   display: flex;
   flex-direction: column;
@@ -321,6 +325,32 @@
 
 .presetCardSelected {
   border-color: var(--accent);
+}
+
+.presetCardStock {
+  border-color: rgba(255, 165, 0, 0.3);
+}
+
+.presetCardStock.presetCardSelected {
+  border-color: orange;
+}
+
+.stockPresetHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 20px 4px;
+}
+
+.stockPresetTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.stockPresetSubtitle {
+  font-size: 11px;
+  color: var(--ink-muted);
 }
 
 .presetTop {

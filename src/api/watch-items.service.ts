@@ -13,12 +13,14 @@ export type WatchItemDto = {
     type: "regex";
     patterns: string[];
   };
+  stockPatterns: string[];
   lastPrice?: number | undefined;
   lastCheckedAt?: number | undefined;
   lastError?: string | undefined;
   lastMatchedPattern?: string | undefined;
   matchConfidence?: CheckConfidence | undefined;
   fallbackVerified?: boolean | undefined;
+  lastInStock?: boolean | undefined;
 };
 
 export type UpsertWatchItemInput = {
@@ -28,6 +30,7 @@ export type UpsertWatchItemInput = {
   targetPrice: number;
   currency: string;
   patterns: string[];
+  stockPatterns: string[];
   intervalMinutes?: number;
 };
 
@@ -84,6 +87,7 @@ type ItemRow = RowDataPacket & {
   matched_pattern: string | null;
   last_confidence: CheckConfidence | null;
   last_verified_by_recheck: number | boolean | null;
+  last_in_stock: number | boolean | null;
 };
 
 type ParserRow = RowDataPacket & {
@@ -129,7 +133,8 @@ export class WatchItemsService {
         s.last_error,
         p.pattern AS matched_pattern,
         s.last_confidence,
-        s.last_verified_by_recheck
+        s.last_verified_by_recheck,
+        s.last_in_stock
        FROM watch_item w
        LEFT JOIN watch_state s ON s.watch_id = w.id
        LEFT JOIN watch_parser p ON p.id = s.last_matched_parser_id
@@ -137,7 +142,9 @@ export class WatchItemsService {
        ORDER BY w.created_at DESC, w.id DESC`
     );
 
-    const parserMap = await this.loadParserMap(itemRows.map((row) => row.id));
+    const watchIds = itemRows.map((row) => row.id);
+    const parserMap = await this.loadParserMap(watchIds);
+    const stockPatternMap = await this.loadStockPatternMap(watchIds);
 
     return itemRows.map((row) => ({
       id: row.id,
@@ -149,6 +156,7 @@ export class WatchItemsService {
         type: "regex",
         patterns: parserMap.get(row.id) ?? []
       },
+      stockPatterns: stockPatternMap.get(row.id) ?? [],
       lastPrice: toNullableNumber(row.last_price),
       lastCheckedAt: toNullableMillis(row.last_checked_at),
       lastError: row.last_error ?? undefined,
@@ -157,7 +165,9 @@ export class WatchItemsService {
       fallbackVerified:
         row.last_verified_by_recheck === null
           ? undefined
-          : Boolean(row.last_verified_by_recheck)
+          : Boolean(row.last_verified_by_recheck),
+      lastInStock:
+        row.last_in_stock === null ? undefined : Boolean(row.last_in_stock)
     }));
   }
 
@@ -186,7 +196,7 @@ export class WatchItemsService {
         ]
       );
 
-      await this.replaceParsers(connection, input.id, input.patterns);
+      await this.replaceParsers(connection, input.id, input.patterns, input.stockPatterns);
 
       await connection.execute(
         `INSERT IGNORE INTO watch_state (watch_id, failures)
@@ -215,7 +225,7 @@ export class WatchItemsService {
         return false;
       }
 
-      await this.replaceParsers(connection, id, input.patterns);
+      await this.replaceParsers(connection, id, input.patterns, input.stockPatterns);
       return true;
     });
   }
@@ -469,7 +479,8 @@ export class WatchItemsService {
       execute(sql: string, params?: (string | number | boolean | Date | null)[]): Promise<{ affectedRows: number }>;
     },
     watchId: string,
-    patterns: string[]
+    patterns: string[],
+    stockPatterns: string[]
   ): Promise<void> {
     await connection.execute(`DELETE FROM watch_parser WHERE watch_id = ?`, [watchId]);
 
@@ -477,6 +488,7 @@ export class WatchItemsService {
       await connection.execute(
         `INSERT INTO watch_parser (
           watch_id,
+          role,
           position,
           tier,
           parser_type,
@@ -484,10 +496,67 @@ export class WatchItemsService {
           flags,
           json_path,
           enabled
-        ) VALUES (?, ?, ?, 'regex', ?, '', NULL, 1)`,
+        ) VALUES (?, 'price', ?, ?, 'regex', ?, '', NULL, 1)`,
         [watchId, index, resolveTier(index), pattern]
       );
     }
+
+    for (const [index, pattern] of stockPatterns.entries()) {
+      await connection.execute(
+        `INSERT INTO watch_parser (
+          watch_id,
+          role,
+          position,
+          tier,
+          parser_type,
+          pattern,
+          flags,
+          json_path,
+          enabled
+        ) VALUES (?, 'stock', ?, NULL, 'regex', ?, '', NULL, 1)`,
+        [watchId, index, pattern]
+      );
+    }
+  }
+
+  private async loadStockPatternMap(watchIds: string[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+
+    if (watchIds.length === 0) {
+      return result;
+    }
+
+    const placeholders = watchIds.map(() => "?").join(", ");
+    const rows = await this.database.queryRows<ParserRow>(
+      `SELECT
+        id,
+        watch_id,
+        parser_type,
+        pattern,
+        flags,
+        json_path,
+        tier,
+        position
+       FROM watch_parser
+       WHERE enabled = 1
+         AND role = 'stock'
+         AND parser_type = 'regex'
+         AND watch_id IN (${placeholders})
+       ORDER BY watch_id ASC, position ASC`,
+      watchIds
+    );
+
+    for (const row of rows) {
+      if (!row.pattern) {
+        continue;
+      }
+
+      const current = result.get(row.watch_id) ?? [];
+      current.push(row.pattern);
+      result.set(row.watch_id, current);
+    }
+
+    return result;
   }
 
   private async getDefaultIntervalMinutes(): Promise<number> {

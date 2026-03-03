@@ -10,6 +10,7 @@ type WatchItemPayload = {
     type: "regex";
     patterns: string[];
   };
+  stockPatterns: string[];
 };
 
 export function normalizeItems(value: unknown): WatchItem[] {
@@ -40,6 +41,12 @@ export function normalizeItems(value: unknown): WatchItem[] {
       .map((pattern) => (typeof pattern === "string" ? pattern.trim() : ""))
       .filter((pattern) => pattern.length > 0);
 
+    const stockPatterns = Array.isArray(item.stockPatterns)
+      ? (item.stockPatterns as unknown[])
+          .map((p) => (typeof p === "string" ? p.trim() : ""))
+          .filter((p) => p.length > 0)
+      : [];
+
     return [
       {
         id,
@@ -48,6 +55,7 @@ export function normalizeItems(value: unknown): WatchItem[] {
         targetPrice,
         currency: toOptionalString(item.currency) ?? "USD",
         parser: { type: "regex", patterns },
+        stockPatterns,
         lastPrice: toOptionalNumber(item.lastPrice),
         lastCheckedAt: toOptionalNumber(item.lastCheckedAt),
         lastError: toOptionalString(item.lastError),
@@ -56,7 +64,9 @@ export function normalizeItems(value: unknown): WatchItem[] {
         fallbackVerified:
           typeof item.fallbackVerified === "boolean"
             ? item.fallbackVerified
-            : undefined
+            : undefined,
+        lastInStock:
+          typeof item.lastInStock === "boolean" ? item.lastInStock : undefined
       }
     ];
   });
@@ -72,7 +82,8 @@ export function itemToPayload(item: WatchItem): WatchItemPayload {
     parser: {
       type: "regex",
       patterns: item.parser.patterns
-    }
+    },
+    stockPatterns: item.stockPatterns
   };
 }
 

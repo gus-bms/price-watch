@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import styles from "../../../App.module.css";
 import { PARSER_PRESETS } from "../model/parser-presets";
 import { dedupePatterns, parsePatternsFromText } from "../model/serializers";
+import { STOCK_PRESETS } from "../model/stock-presets";
 import { type WatchItem } from "../model/types";
 
 type AddItemModalProps = {
@@ -27,6 +28,10 @@ export function AddItemModal({
   const [customPatternsText, setCustomPatternsText] = useState(
     initialItem?.parser.patterns.join("\n") ?? ""
   );
+  const [selectedStockPresetIds, setSelectedStockPresetIds] = useState<string[]>([]);
+  const [customStockPatternsText, setCustomStockPatternsText] = useState(
+    initialItem?.stockPatterns.join("\n") ?? ""
+  );
   const [error, setError] = useState("");
 
   const presetPatterns = useMemo(
@@ -42,6 +47,19 @@ export function AddItemModal({
     [customPatternsText, presetPatterns]
   );
 
+  const stockPresetPatterns = useMemo(
+    () =>
+      STOCK_PRESETS
+        .filter((preset) => selectedStockPresetIds.includes(preset.id))
+        .flatMap((preset) => preset.patterns),
+    [selectedStockPresetIds]
+  );
+
+  const allStockPatterns = useMemo(
+    () => dedupePatterns([...stockPresetPatterns, ...parsePatternsFromText(customStockPatternsText)]),
+    [customStockPatternsText, stockPresetPatterns]
+  );
+
   function togglePreset(presetId: string, presetCurrency: string) {
     setSelectedPresetIds((current) =>
       current.includes(presetId)
@@ -52,6 +70,14 @@ export function AddItemModal({
     if (mode === "create") {
       setCurrency(presetCurrency);
     }
+  }
+
+  function toggleStockPreset(presetId: string) {
+    setSelectedStockPresetIds((current) =>
+      current.includes(presetId)
+        ? current.filter((value) => value !== presetId)
+        : [...current, presetId]
+    );
   }
 
   function handleSubmit(event: FormEvent) {
@@ -90,12 +116,14 @@ export function AddItemModal({
       targetPrice: parsedPrice,
       currency: trimmedCurrency,
       parser: { type: "regex", patterns: allPatterns },
+      stockPatterns: allStockPatterns,
       lastPrice: initialItem?.lastPrice,
       lastCheckedAt: initialItem?.lastCheckedAt,
       lastError: initialItem?.lastError,
       lastMatchedPattern: initialItem?.lastMatchedPattern,
       matchConfidence: initialItem?.matchConfidence,
-      fallbackVerified: initialItem?.fallbackVerified
+      fallbackVerified: initialItem?.fallbackVerified,
+      lastInStock: initialItem?.lastInStock
     });
   }
 
@@ -111,6 +139,7 @@ export function AddItemModal({
           </button>
         </div>
 
+        {/* 가격 패턴 프리셋 */}
         <div className={styles.presetList}>
           {PARSER_PRESETS.map((preset) => (
             <button
@@ -126,6 +155,32 @@ export function AddItemModal({
               <div className={styles.presetTop}>
                 <span className={styles.presetLabel}>{preset.label}</span>
                 <span className={styles.presetExample}>{preset.currency}</span>
+              </div>
+              <span className={styles.presetDesc}>{preset.description}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* 재입고 감지 패턴 프리셋 */}
+        <div className={styles.stockPresetHeader}>
+          <span className={styles.stockPresetTitle}>재입고 감지 패턴</span>
+          <span className={styles.stockPresetSubtitle}>품절 표시를 감지하면 가격 체크를 건너뜁니다</span>
+        </div>
+        <div className={styles.presetList}>
+          {STOCK_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              className={`${styles.presetCard} ${styles.presetCardStock} ${
+                selectedStockPresetIds.includes(preset.id) ? styles.presetCardSelected : ""
+              }`}
+              type="button"
+              onClick={() => {
+                toggleStockPreset(preset.id);
+              }}
+            >
+              <div className={styles.presetTop}>
+                <span className={styles.presetLabel}>{preset.label}</span>
+                <span className={styles.presetExample}>{preset.patterns.length}개</span>
               </div>
               <span className={styles.presetDesc}>{preset.description}</span>
             </button>
@@ -191,14 +246,27 @@ export function AddItemModal({
           </label>
 
           <label className={styles.field}>
-            <span className={styles.fieldLabel}>Custom regex patterns (one per line)</span>
+            <span className={styles.fieldLabel}>Custom 가격 패턴 (한 줄에 하나)</span>
             <textarea
               className={styles.textarea}
               value={customPatternsText}
               onChange={(event) => {
                 setCustomPatternsText(event.target.value);
               }}
-              rows={5}
+              rows={4}
+            />
+          </label>
+
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Custom 재입고 감지 패턴 (한 줄에 하나)</span>
+            <textarea
+              className={styles.textarea}
+              value={customStockPatternsText}
+              onChange={(event) => {
+                setCustomStockPatternsText(event.target.value);
+              }}
+              placeholder={"품절\n일시품절\nsold out"}
+              rows={3}
             />
           </label>
 

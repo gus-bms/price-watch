@@ -8,6 +8,11 @@ export type NotificationPayload = {
   url: string;
 };
 
+export type RestockPayload = {
+  item: WatchItem;
+  url: string;
+};
+
 @Injectable()
 export class ConsoleNotifierService {
   notify(payload: NotificationPayload): void {
@@ -19,6 +24,14 @@ export class ConsoleNotifierService {
 
     console.log(
       `[ALERT ${timestamp}] ${payload.item.name} <= ${payload.item.targetPrice} (${displayPrice}) ${payload.url}`
+    );
+  }
+
+  notifyRestock(payload: RestockPayload): void {
+    const timestamp = new Date().toISOString();
+
+    console.log(
+      `[RESTOCK ${timestamp}] ${payload.item.name} is back in stock → ${payload.url}`
     );
   }
 }
