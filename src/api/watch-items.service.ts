@@ -50,6 +50,7 @@ export type CheckableWatchItem = {
   currency?: string | undefined;
   targetPrice: number;
   parsers: ParserCandidate[];
+  stockPatterns: string[];
 };
 
 export type CheckSuccessInput = {
@@ -266,6 +267,7 @@ export class WatchItemsService {
        FROM watch_parser
        WHERE watch_id = ?
          AND enabled = 1
+         AND role = 'price'
        ORDER BY position ASC`,
       [id]
     );
@@ -273,6 +275,17 @@ export class WatchItemsService {
     if (parserRows.length === 0) {
       return null;
     }
+
+    const stockRows = await this.database.queryRows<ParserRow[]>(
+      `SELECT pattern
+       FROM watch_parser
+       WHERE watch_id = ?
+         AND enabled = 1
+         AND role = 'stock'
+         AND parser_type = 'regex'
+       ORDER BY position ASC`,
+      [id]
+    );
 
     const row = itemRows[0];
     if (!row) {
@@ -292,7 +305,10 @@ export class WatchItemsService {
         flags: parser.flags || undefined,
         path: parser.json_path ?? undefined,
         tier: parser.tier ?? undefined
-      }))
+      })),
+      stockPatterns: stockRows
+        .map((r) => r.pattern ?? "")
+        .filter((p) => p.length > 0)
     };
   }
 
@@ -428,6 +444,54 @@ export class WatchItemsService {
           new Date(input.startedAt),
           new Date(input.finishedAt),
           input.errorMessage,
+          input.responseContentType ?? null,
+          Math.max(0, input.finishedAt - input.startedAt)
+        ]
+      );
+    });
+  }
+
+  async recordSoldOutCheck(input: {
+    itemId: string;
+    startedAt: number;
+    finishedAt: number;
+    responseContentType?: string | undefined;
+    triggerSource: "api_check";
+  }): Promise<void> {
+    await this.database.withTransaction(async (connection) => {
+      await connection.execute(
+        `INSERT INTO watch_state (
+          watch_id,
+          failures,
+          last_error,
+          last_in_stock,
+          last_checked_at,
+          updated_at
+        ) VALUES (?, 0, NULL, 0, ?, NOW(3))
+        ON DUPLICATE KEY UPDATE
+          failures = 0,
+          last_error = NULL,
+          last_in_stock = 0,
+          last_checked_at = VALUES(last_checked_at),
+          updated_at = NOW(3)`,
+        [input.itemId, new Date(input.finishedAt)]
+      );
+
+      await connection.execute(
+        `INSERT INTO watch_check_run (
+          watch_id,
+          trigger_source,
+          started_at,
+          finished_at,
+          response_content_type,
+          success,
+          duration_ms
+        ) VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        [
+          input.itemId,
+          input.triggerSource,
+          new Date(input.startedAt),
+          new Date(input.finishedAt),
           input.responseContentType ?? null,
           Math.max(0, input.finishedAt - input.startedAt)
         ]

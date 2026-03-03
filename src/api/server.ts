@@ -4,6 +4,7 @@ import { URL } from "node:url";
 import { DatabaseService } from "../database/database.service";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { PriceParserService } from "../parsers/price-parser.service";
+import { StockParserService } from "../parsers/stock-parser.service";
 import { type ParserConfig } from "../runner/types";
 import { WatchItemsService } from "./watch-items.service";
 
@@ -21,6 +22,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
   const itemsService = new WatchItemsService(database);
   const fetcher = new HttpFetcherService();
   const parser = new PriceParserService();
+  const stockParser = new StockParserService();
 
   const port = toPort(process.env.APP_PORT, 4000);
   const host = process.env.APP_HOST ?? "0.0.0.0";
@@ -139,6 +141,27 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           const body = fetched.body;
           contentType = fetched.contentType;
 
+          // ── 재고 확인 ────────────────────────────────────────
+          if (item.stockPatterns.length > 0) {
+            const inStock = stockParser.isInStock(body, item.stockPatterns);
+
+            if (inStock === false) {
+              const finishedAt = Date.now();
+
+              await itemsService.recordSoldOutCheck({
+                itemId: item.id,
+                startedAt,
+                finishedAt,
+                responseContentType: contentType,
+                triggerSource: "api_check"
+              });
+
+              sendJson(response, 200, { soldOut: true, inStock: false });
+              return;
+            }
+          }
+
+          // ── 가격 확인 ────────────────────────────────────────
           for (const [index, parserCandidate] of item.parsers.entries()) {
             try {
               const parsedPrice = parser.parsePrice(
@@ -190,6 +213,8 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
               });
 
               sendJson(response, 200, {
+                soldOut: false,
+                inStock: item.stockPatterns.length > 0 ? true : null,
                 price: parsedPrice,
                 matchedParser: {
                   type: parserCandidate.type,
