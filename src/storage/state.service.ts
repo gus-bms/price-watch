@@ -16,6 +16,7 @@ type StateRow = RowDataPacket & {
   last_checked_at: Date | string | null;
   last_notified_at: Date | string | null;
   last_notified_price: number | string | null;
+  last_in_stock: boolean | number | null;
 };
 
 type CheckRunInput = {
@@ -34,6 +35,7 @@ type CheckRunInput = {
 
 type NotificationInput = {
   watchId: string;
+  notificationType?: "price_alert" | "restock" | undefined;
   price: number;
   targetPriceSnapshot: number;
   currency?: string | undefined;
@@ -61,7 +63,8 @@ export class StateService {
         last_price,
         last_checked_at,
         last_notified_at,
-        last_notified_price
+        last_notified_price,
+        last_in_stock
        FROM watch_state
        WHERE watch_id IN (${placeholders})`,
       itemIds
@@ -76,7 +79,8 @@ export class StateService {
         lastPrice: toNullableNumber(row.last_price),
         lastCheckedAt: toNullableMillis(row.last_checked_at),
         lastNotifiedAt: toNullableMillis(row.last_notified_at),
-        lastNotifiedPrice: toNullableNumber(row.last_notified_price)
+        lastNotifiedPrice: toNullableNumber(row.last_notified_price),
+        lastInStock: toNullableBoolean(row.last_in_stock)
       };
     }
 
@@ -93,8 +97,9 @@ export class StateService {
         last_checked_at,
         last_notified_at,
         last_notified_price,
+        last_in_stock,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3))
       ON DUPLICATE KEY UPDATE
         failures = VALUES(failures),
         last_error = VALUES(last_error),
@@ -102,6 +107,7 @@ export class StateService {
         last_checked_at = VALUES(last_checked_at),
         last_notified_at = VALUES(last_notified_at),
         last_notified_price = VALUES(last_notified_price),
+        last_in_stock = VALUES(last_in_stock),
         updated_at = NOW(3)`,
       [
         watchId,
@@ -110,7 +116,8 @@ export class StateService {
         state.lastPrice ?? null,
         toDate(state.lastCheckedAt),
         toDate(state.lastNotifiedAt),
-        state.lastNotifiedPrice ?? null
+        state.lastNotifiedPrice ?? null,
+        state.lastInStock ?? null
       ]
     );
   }
@@ -152,6 +159,7 @@ export class StateService {
     await this.database.execute(
       `INSERT INTO watch_notification (
         watch_id,
+        notification_type,
         price,
         target_price_snapshot,
         currency,
@@ -159,9 +167,10 @@ export class StateService {
         status,
         message,
         error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.watchId,
+        input.notificationType ?? "price_alert",
         input.price,
         input.targetPriceSnapshot,
         input.currency ?? null,
@@ -211,6 +220,14 @@ function toNullableMillis(value: Date | string | null): number | undefined {
   }
 
   return timestamp;
+}
+
+function toNullableBoolean(value: boolean | number | null): boolean | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  return Boolean(value);
 }
 
 function toDate(timestamp: number | undefined): Date | null {

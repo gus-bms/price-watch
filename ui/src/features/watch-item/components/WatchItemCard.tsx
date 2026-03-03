@@ -17,32 +17,40 @@ export function WatchItemCard({
   onEdit,
   onDelete
 }: WatchItemCardProps) {
+  const isSoldOut = item.lastInStock === false;
+
   const badgeClassName = `${styles.badge} ${
-    item.lastError
+    isSoldOut
       ? styles.badgeRed
-      : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
-        ? styles.badgeGreen
-        : ""
+      : item.lastError
+        ? styles.badgeRed
+        : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
+          ? styles.badgeGreen
+          : ""
   }`;
 
-  const badgeText = item.lastError
-    ? "Error"
-    : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
-      ? "Below target"
-      : "Watching";
+  const badgeText = isSoldOut
+    ? "Sold Out"
+    : item.lastError
+      ? "Error"
+      : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
+        ? "Below target"
+        : "Watching";
 
   return (
-    <article className={`${styles.card} ${item.lastError ? styles.cardError : ""}`}>
+    <article className={`${styles.card} ${isSoldOut || item.lastError ? styles.cardError : ""}`}>
       <div className={styles.cardTop}>
         <h3 className={styles.cardName}>{item.name}</h3>
         <span className={badgeClassName}>{badgeText}</span>
       </div>
 
-      <div className={styles.prices}>
+      <div className={`${styles.prices} ${isSoldOut ? styles.pricesDimmed : ""}`}>
         <div className={styles.priceCol}>
           <span className={styles.priceLabel}>Current</span>
           <span className={styles.priceCurrent}>
-            {item.lastPrice !== undefined ? formatMoney(item.lastPrice, item.currency) : "--"}
+            {isSoldOut || item.lastPrice === undefined
+              ? "--"
+              : formatMoney(item.lastPrice, item.currency)}
           </span>
         </div>
         <div className={styles.priceDivider} />
@@ -52,7 +60,15 @@ export function WatchItemCard({
         </div>
       </div>
 
-      {item.lastError && <p className={styles.errorMsg}>{item.lastError}</p>}
+      {isSoldOut && (
+        <p className={styles.matchNoteWarn}>
+          재고 없음 — 재입고 시 알림을 보냅니다
+        </p>
+      )}
+
+      {!isSoldOut && item.lastError && (
+        <p className={styles.errorMsg}>{item.lastError}</p>
+      )}
 
       <div className={styles.cardMeta}>
         <span>{item.lastCheckedAt ? `Checked ${formatTime(item.lastCheckedAt)}` : "Not checked yet"}</span>
@@ -60,16 +76,17 @@ export function WatchItemCard({
           {item.lastMatchedPattern
             ? `Matched: /${item.lastMatchedPattern}/`
             : `${item.parser.patterns.length} pattern(s)`}
+          {item.stockPatterns.length > 0 && ` · ${item.stockPatterns.length} stock pattern(s)`}
         </span>
       </div>
 
-      {item.matchConfidence === "low" && (
+      {!isSoldOut && item.matchConfidence === "low" && (
         <p className={styles.matchNoteWarn}>
           Fallback pattern matched{item.fallbackVerified ? " (rechecked)" : ""}
         </p>
       )}
 
-      {item.matchConfidence === "medium" && (
+      {!isSoldOut && item.matchConfidence === "medium" && (
         <p className={styles.matchNoteInfo}>Secondary pattern matched</p>
       )}
 

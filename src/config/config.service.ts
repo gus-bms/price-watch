@@ -50,7 +50,8 @@ export class ConfigService {
       throw new Error("watch_item table has no enabled rows");
     }
 
-    const parserRows = await this.loadParsers(itemRows.map((row) => row.id));
+    const watchIds = itemRows.map((row) => row.id);
+    const parserRows = await this.loadParsers(watchIds);
     const parserByWatchId = new Map<string, ParserConfig>();
 
     for (const row of parserRows) {
@@ -60,6 +61,8 @@ export class ConfigService {
 
       parserByWatchId.set(row.watch_id, toParserConfig(row));
     }
+
+    const stockPatternsByWatchId = await this.loadStockPatterns(watchIds);
 
     const firstGlobalRow = globalRows[0];
     const global = firstGlobalRow
@@ -92,7 +95,8 @@ export class ConfigService {
         targetPrice,
         currency: row.currency ?? undefined,
         parser,
-        intervalMinutes
+        intervalMinutes,
+        stockPatterns: stockPatternsByWatchId.get(row.id) ?? []
       };
     });
 
@@ -112,10 +116,47 @@ export class ConfigService {
         position
        FROM watch_parser
        WHERE enabled = 1
+         AND role = 'price'
          AND watch_id IN (${placeholders})
        ORDER BY watch_id ASC, position ASC`,
       watchIds
     );
+  }
+
+  private async loadStockPatterns(watchIds: string[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+
+    if (watchIds.length === 0) {
+      return result;
+    }
+
+    const placeholders = watchIds.map(() => "?").join(", ");
+
+    const rows = await this.database.queryRows<StockPatternRow[]>(
+      `SELECT
+        watch_id,
+        pattern
+       FROM watch_parser
+       WHERE enabled = 1
+         AND role = 'stock'
+         AND parser_type = 'regex'
+         AND pattern IS NOT NULL
+         AND watch_id IN (${placeholders})
+       ORDER BY watch_id ASC, position ASC`,
+      watchIds
+    );
+
+    for (const row of rows) {
+      if (!row.pattern) {
+        continue;
+      }
+
+      const current = result.get(row.watch_id) ?? [];
+      current.push(row.pattern);
+      result.set(row.watch_id, current);
+    }
+
+    return result;
   }
 }
 
@@ -143,6 +184,11 @@ type ParserRow = RowDataPacket & {
   flags: string;
   json_path: string | null;
   position: number;
+};
+
+type StockPatternRow = RowDataPacket & {
+  watch_id: string;
+  pattern: string | null;
 };
 
 function toGlobalConfig(row: GlobalRow): GlobalConfig {

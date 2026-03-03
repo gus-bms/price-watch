@@ -12,12 +12,14 @@ export type WatchItem = {
   targetPrice: number;
   currency: string;
   parser: RegexParser;
+  stockPatterns: string[];
   lastPrice?: number;
   lastCheckedAt?: number;
   lastError?: string;
   lastMatchedPattern?: string;
   matchConfidence?: MatchConfidence;
   fallbackVerified?: boolean;
+  lastInStock?: boolean;
 };
 
 export type ParserPreset = {

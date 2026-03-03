@@ -31,6 +31,7 @@ export type WatchItem = {
   currency?: string | undefined;
   parser: ParserConfig;
   intervalMinutes: number;
+  stockPatterns?: string[] | undefined;
 };
 
 export type WatchConfig = {
@@ -45,6 +46,7 @@ export type ItemState = {
   lastCheckedAt?: number | undefined;
   lastNotifiedAt?: number | undefined;
   lastNotifiedPrice?: number | undefined;
+  lastInStock?: boolean | undefined;
 };
 
 export type RunnerState = {
