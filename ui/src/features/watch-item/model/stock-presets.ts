@@ -9,8 +9,16 @@ export const STOCK_PRESETS: StockPreset[] = [
   {
     id: "stock-korean-common",
     label: "한국어 품절",
-    description: "품절 / 일시품절 / 재고없음 / 구매불가",
-    patterns: ["품절", "일시품절", "재고\\s*없음", "구매불가", "품절된 상품"]
+    description: "품절 / 일시품절 / 재고없음 / 구매불가 / 재입고 알림 신청",
+    patterns: [
+      "품절",
+      "일시품절",
+      "재고\\s*없음",
+      "구매불가",
+      "품절된 상품",
+      "재입고 알림 신청",
+      "재입고\\s*알림"
+    ]
   },
   {
     id: "stock-english-common",
