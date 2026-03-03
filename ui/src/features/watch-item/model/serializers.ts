@@ -92,6 +92,11 @@ export function parseCheckSuccess(value: unknown): CheckSuccess {
     throw new Error("Invalid check response");
   }
 
+  // 품절 응답
+  if (value.soldOut === true) {
+    return { soldOut: true, inStock: false };
+  }
+
   const price = Number(value.price);
   const confidence = toConfidence(value.confidence);
   const verifiedByRecheck = Boolean(value.verifiedByRecheck);
@@ -106,7 +111,11 @@ export function parseCheckSuccess(value: unknown): CheckSuccess {
       ? matchedParser.pattern
       : undefined;
 
+  const inStock = value.inStock === true ? (true as const) : null;
+
   return {
+    soldOut: false,
+    inStock,
     price,
     matchedPattern,
     confidence,

@@ -30,9 +30,13 @@ export type ParserPreset = {
   patterns: string[];
 };
 
-export type CheckSuccess = {
-  price: number;
-  matchedPattern?: string;
-  confidence: MatchConfidence;
-  verifiedByRecheck: boolean;
-};
+export type CheckSuccess =
+  | { soldOut: true; inStock: false }
+  | {
+      soldOut: false;
+      inStock: true | null;
+      price: number;
+      matchedPattern?: string;
+      confidence: MatchConfidence;
+      verifiedByRecheck: boolean;
+    };
