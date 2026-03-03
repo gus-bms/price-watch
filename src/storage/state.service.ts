@@ -39,7 +39,7 @@ type NotificationInput = {
   price: number;
   targetPriceSnapshot: number;
   currency?: string | undefined;
-  channel?: "console" | undefined;
+  channel?: "console" | "slack" | "email" | "webhook" | undefined;
   status?: "sent" | "failed" | "skipped" | undefined;
   message?: string | undefined;
   errorMessage?: string | undefined;

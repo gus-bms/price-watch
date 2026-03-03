@@ -58,7 +58,8 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
-          patterns: normalized.patterns
+          patterns: normalized.patterns,
+          stockPatterns: normalized.stockPatterns
         });
 
         sendJson(response, 201, { id });
@@ -80,7 +81,8 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
-          patterns: normalized.patterns
+          patterns: normalized.patterns,
+          stockPatterns: normalized.stockPatterns
         });
 
         if (!updated) {
@@ -277,6 +279,7 @@ type NormalizedItemPayload = {
   targetPrice: number;
   currency: string;
   patterns: string[];
+  stockPatterns: string[];
 };
 
 function normalizeItemPayload(
@@ -316,12 +319,20 @@ function normalizeItemPayload(
     throw new BadRequestError("At least one regex pattern is required");
   }
 
+  const stockPatternsValue = payload.stockPatterns;
+  const stockPatterns = Array.isArray(stockPatternsValue)
+    ? stockPatternsValue
+        .map((p) => (typeof p === "string" ? p.trim() : ""))
+        .filter((p) => p.length > 0)
+    : [];
+
   return {
     name,
     url,
     targetPrice,
     currency,
-    patterns
+    patterns,
+    stockPatterns
   };
 }
 
