@@ -60,35 +60,37 @@ export function WatchItemCard({
         </div>
       </div>
 
-      {isSoldOut && (
-        <p className={styles.matchNoteWarn}>
-          재고 없음 — 재입고 시 알림을 보냅니다
-        </p>
-      )}
+      <div className={styles.cardBody}>
+        {isSoldOut && (
+          <p className={styles.matchNoteWarn}>
+            재고 없음 — 재입고 시 알림을 보냅니다
+          </p>
+        )}
 
-      {!isSoldOut && item.lastError && (
-        <p className={styles.errorMsg}>{item.lastError}</p>
-      )}
+        {!isSoldOut && item.lastError && (
+          <p className={styles.errorMsg}>{item.lastError}</p>
+        )}
 
-      <div className={styles.cardMeta}>
-        <span>{item.lastCheckedAt ? `Checked ${formatTime(item.lastCheckedAt)}` : "Not checked yet"}</span>
-        <span className={styles.parserHint}>
-          {item.lastMatchedPattern
-            ? `Matched: /${item.lastMatchedPattern}/`
-            : `${item.parser.patterns.length} pattern(s)`}
-          {item.stockPatterns.length > 0 && ` · ${item.stockPatterns.length} stock pattern(s)`}
-        </span>
+        {!isSoldOut && item.matchConfidence === "low" && (
+          <p className={styles.matchNoteWarn}>
+            Fallback pattern matched{item.fallbackVerified ? " (rechecked)" : ""}
+          </p>
+        )}
+
+        {!isSoldOut && item.matchConfidence === "medium" && (
+          <p className={styles.matchNoteInfo}>Secondary pattern matched</p>
+        )}
+
+        <div className={styles.cardMeta}>
+          <span>{item.lastCheckedAt ? `Checked ${formatTime(item.lastCheckedAt)}` : "Not checked yet"}</span>
+          <span className={styles.parserHint}>
+            {item.lastMatchedPattern
+              ? `Matched: /${item.lastMatchedPattern}/`
+              : `${item.parser.patterns.length} pattern(s)`}
+            {item.stockPatterns.length > 0 && ` · ${item.stockPatterns.length} stock pattern(s)`}
+          </span>
+        </div>
       </div>
-
-      {!isSoldOut && item.matchConfidence === "low" && (
-        <p className={styles.matchNoteWarn}>
-          Fallback pattern matched{item.fallbackVerified ? " (rechecked)" : ""}
-        </p>
-      )}
-
-      {!isSoldOut && item.matchConfidence === "medium" && (
-        <p className={styles.matchNoteInfo}>Secondary pattern matched</p>
-      )}
 
       <div className={styles.cardActions}>
         <button
