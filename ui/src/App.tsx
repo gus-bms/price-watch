@@ -12,6 +12,7 @@ export default function App() {
     checking,
     loading,
     loadError,
+    reloadItems,
     createItem,
     updateItem,
     deleteItem,
@@ -121,6 +122,7 @@ export default function App() {
           initialItem={editingItem}
           onSubmit={handleSubmit}
           onClose={closeModal}
+          onAfterSave={reloadItems}
         />
       )}
 
