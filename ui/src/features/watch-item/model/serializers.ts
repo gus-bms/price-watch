@@ -133,7 +133,8 @@ export function parseCheckSuccess(value: unknown): CheckSuccess {
     price,
     matchedPattern,
     confidence,
-    verifiedByRecheck
+    verifiedByRecheck,
+    isOutOfStock: typeof value.isOutOfStock === "boolean" ? value.isOutOfStock : undefined
   };
 }
 

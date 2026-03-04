@@ -28,7 +28,7 @@ export default function App() {
   );
 
   const belowTarget = useMemo(
-    () => items.filter((item) => item.lastPrice !== undefined && item.lastPrice <= item.targetPrice).length,
+    () => items.filter((item) => item.lastPrice !== undefined && item.lastPrice <= item.targetPrice && item.isOutOfStock !== true).length,
     [items]
   );
   const withErrors = useMemo(() => items.filter((item) => item.lastError).length, [items]);
@@ -41,11 +41,8 @@ export default function App() {
   function openEditModal(itemId: string) { setEditingItemId(itemId); setShowForm(true); }
   function closeModal() { setShowForm(false); setEditingItemId(null); }
 
-  function handleSubmit(item: WatchItem) {
-    const action = editingItemId ? updateItem(item) : createItem(item);
-    void action.then(() => { closeModal(); }).catch((error) => {
-      window.alert(error instanceof Error ? error.message : String(error));
-    });
+  function handleSubmit(item: WatchItem): Promise<void> {
+    return editingItemId ? updateItem(item) : createItem(item);
   }
 
   if (loading) {

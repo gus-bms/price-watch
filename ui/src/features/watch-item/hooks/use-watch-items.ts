@@ -84,7 +84,8 @@ export function useWatchItems() {
                 lastError: undefined,
                 lastMatchedPattern: parsed.matchedPattern,
                 matchConfidence: parsed.confidence,
-                fallbackVerified: parsed.verifiedByRecheck
+                fallbackVerified: parsed.verifiedByRecheck,
+                ...(parsed.isOutOfStock !== undefined ? { isOutOfStock: parsed.isOutOfStock } : {})
               }
             : item
         )
