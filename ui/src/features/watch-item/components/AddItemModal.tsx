@@ -11,9 +11,10 @@ type AddItemModalProps = {
   initialItem: WatchItem | null;
   onSubmit: (item: WatchItem) => Promise<void>;
   onClose: () => void;
+  onAfterSave?: () => void | Promise<void>;
 };
 
-export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemModalProps) {
+export function AddItemModal({ mode, initialItem, onSubmit, onClose, onAfterSave }: AddItemModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(mode === "edit" ? 3 : 1);
   const [name, setName] = useState(initialItem?.name ?? "");
   const [url, setUrl] = useState(initialItem?.url ?? "");
@@ -56,25 +57,24 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
     setStep(2);
   }
 
-  function handleNextStep2(e: FormEvent) {
-    e.preventDefault();
+  function startLlmAnalysis() {
     setError("");
     setLlmSteps([]);
     setLlmResult(null);
     setLlmAnalyzing(true);
-    
+
     const targetSize = size.trim() || undefined;
-    
+
     const cancel = streamLlmAnalysis(url.trim(), targetSize, (progress) => {
       setLlmSteps((prev) => [...prev, progress]);
-      
+
       if (progress.step === "done" && progress.data) {
         setLlmResult(progress.data);
         if (progress.data.testRun?.currentPrice && !targetPrice) {
           setTargetPrice(String(progress.data.testRun.currentPrice));
         }
       }
-      
+
       if (progress.step === "done" || progress.step === "error") {
         setLlmAnalyzing(false);
         if (progress.step === "done") {
@@ -83,6 +83,11 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
       }
     });
     setCancelLlm(() => cancel);
+  }
+
+  function handleNextStep2(e: FormEvent) {
+    e.preventDefault();
+    startLlmAnalysis();
   }
 
   async function handleSubmitStep3(event: FormEvent) {
@@ -130,10 +135,11 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
 
     try {
       await onSubmit(submittedItem);
-      if (mode === "create" && llmResult) {
+      if (llmResult) {
         await saveLlmParsers(submittedItem.id, llmResult).catch((err) => {
           console.warn("LLM parser save failed:", err instanceof Error ? err.message : String(err));
         });
+        try { await onAfterSave?.(); } catch { /* ignore reload errors */ }
       }
       onClose();
     } catch (err) {
@@ -141,7 +147,7 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
     }
   }
 
-  if (llmAnalyzing || (llmSteps.length > 0 && !llmResult && step === 2)) {
+  if (llmAnalyzing || (llmSteps.length > 0 && !llmResult)) {
     const lastStep = llmSteps[llmSteps.length - 1];
     const isFinished = lastStep?.step === "done" || lastStep?.step === "error";
     if (!isFinished) return <LlmAnalysisOverlay steps={llmSteps} onCancel={handleCancelLlm} />;
@@ -191,6 +197,28 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
 
         {step === 3 && (
           <form className={styles.form} onSubmit={handleSubmitStep3}>
+            {mode === "edit" && !llmResult && (
+              <div style={{ marginBottom: "1rem", padding: "0.875rem 1rem", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
+                <p style={{ margin: 0, color: "#713f12", fontSize: "0.85rem", lineHeight: 1.4 }}>
+                  품절 파서가 없거나 오래된 상품은 LLM 재분석으로 재고 감지를 복구할 수 있습니다.
+                </p>
+                <button
+                  className={styles.submitBtn}
+                  type="button"
+                  style={{ background: "#ca8a04", whiteSpace: "nowrap", flex: "none" }}
+                  onClick={startLlmAnalysis}
+                >
+                  LLM 재분석
+                </button>
+              </div>
+            )}
+            {mode === "edit" && llmResult && (
+              <div style={{ marginBottom: "1rem", padding: "0.875rem 1rem", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px" }}>
+                <p style={{ margin: 0, color: "#166534", fontWeight: 600, fontSize: "0.9rem" }}>
+                  ✅ LLM 재분석 완료 — 저장 시 파서 및 재고 상태가 업데이트됩니다.
+                </p>
+              </div>
+            )}
             {llmResult?.testRun?.isOutOfStock ? (
               <div style={{ background: "#fee2e2", padding: "1rem", borderRadius: "8px", border: "1px solid #fca5a5", marginBottom: "1rem" }}>
                 <h3 style={{ color: "#991b1b", margin: "0 0 0.5rem 0", fontSize: "1rem" }}>🚨 품절 상태 감지됨</h3>
