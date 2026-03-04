@@ -69,4 +69,9 @@ export type GeneratedParsers = {
   stockPattern: string | null;
   stockFlags: string;
   sizeStockPatterns: Array<{ size: string; pattern: string; flags: string }>;
+  testRun?: {
+    currentPrice?: number;
+    isOutOfStock?: boolean;
+    error?: string;
+  };
 };

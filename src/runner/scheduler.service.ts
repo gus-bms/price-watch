@@ -138,8 +138,8 @@ export class SchedulerService implements OnModuleDestroy {
       const now = Date.now();
       const canNotify = now - lastNotifiedAt >= minNotifyMs;
 
-      // 1) 가격 목표 달성 알림
-      if (price <= item.targetPrice && canNotify) {
+      // 1) 가격 목표 달성 알림 (재고가 있을 때만 동작)
+      if (itemState.isOutOfStock !== true && price !== undefined && price <= item.targetPrice && canNotify) {
         this.notifier.notify({ item, price, currency: item.currency, url: item.url });
 
         await this.stateService.recordNotification({
