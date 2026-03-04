@@ -42,6 +42,7 @@ export type LlmParserInput = {
   stockPattern: string | null;
   stockFlags: string;
   sizeStockPatterns: Array<{ size: string; pattern: string; flags: string }>;
+  initialIsOutOfStock?: boolean | undefined;
 };
 
 export type LlmApiKeyDto = {
@@ -63,10 +64,12 @@ export type CreateLlmApiKeyInput = {
 export type ParserCandidate = {
   id: number;
   type: "regex" | "jsonPath";
+  kind: "price" | "stock" | "size_stock";
   pattern?: string | undefined;
   flags?: string | undefined;
   path?: string | undefined;
   tier?: "primary" | "secondary" | "fallback" | undefined;
+  targetSize?: string | undefined;
 };
 
 export type CheckableWatchItem = {
@@ -74,6 +77,7 @@ export type CheckableWatchItem = {
   name: string;
   url: string;
   currency?: string | undefined;
+  size?: string | undefined;
   targetPrice: number;
   parsers: ParserCandidate[];
 };
@@ -83,6 +87,7 @@ export type CheckSuccessInput = {
   startedAt: number;
   finishedAt: number;
   price: number;
+  isOutOfStock?: boolean | undefined;
   confidence: CheckConfidence;
   verifiedByRecheck: boolean;
   matchedParserId?: number | undefined;
@@ -132,9 +137,11 @@ type ParserRow = RowDataPacket & {
   id: number;
   watch_id: string;
   parser_type: "regex" | "jsonPath";
+  parser_kind: "price" | "stock" | "size_stock";
   pattern: string | null;
   flags: string;
   json_path: string | null;
+  target_size: string | null;
   tier: "primary" | "secondary" | "fallback" | null;
   position: number;
 };
@@ -145,6 +152,7 @@ type CheckableItemRow = RowDataPacket & {
   url: string;
   target_price: number | string;
   currency: string | null;
+  size: string | null;
 };
 
 type GlobalConfigRow = RowDataPacket & {
@@ -317,6 +325,16 @@ export class WatchItemsService {
           [input.watchId, position++, sp.pattern, sp.flags, sp.size]
         );
       }
+
+      // 만약 초기 상태가 주어졌다면, watch_state에 즉시 기록하여 UI에서 바로 확인할 수 있도록 함
+      if (input.initialIsOutOfStock !== undefined) {
+          await connection.execute(
+            `INSERT INTO watch_state (watch_id, is_out_of_stock, failures)
+             VALUES (?, ?, 0)
+             ON DUPLICATE KEY UPDATE is_out_of_stock = VALUES(is_out_of_stock)`,
+            [input.watchId, input.initialIsOutOfStock ? 1 : 0]
+          );
+      }
     });
   }
 
@@ -376,7 +394,7 @@ export class WatchItemsService {
 
   async getCheckableItem(id: string): Promise<CheckableWatchItem | null> {
     const itemRows = await this.database.queryRows<CheckableItemRow[]>(
-      `SELECT id, name, url, target_price, currency
+      `SELECT id, name, url, target_price, currency, size
        FROM watch_item
        WHERE id = ?
          AND enabled = 1
@@ -393,9 +411,11 @@ export class WatchItemsService {
         id,
         watch_id,
         parser_type,
+        parser_kind,
         pattern,
         flags,
         json_path,
+        target_size,
         tier,
         position
        FROM watch_parser
@@ -419,14 +439,17 @@ export class WatchItemsService {
       name: row.name,
       url: row.url,
       currency: row.currency ?? undefined,
+      size: row.size ?? undefined,
       targetPrice: Number(row.target_price),
       parsers: parserRows.map((parser) => ({
         id: Number(parser.id),
         type: parser.parser_type,
+        kind: parser.parser_kind,
         pattern: parser.pattern ?? undefined,
         flags: parser.flags || undefined,
         path: parser.json_path ?? undefined,
-        tier: parser.tier ?? undefined
+        tier: parser.tier ?? undefined,
+        targetSize: parser.target_size ?? undefined
       }))
     };
   }
@@ -464,6 +487,12 @@ export class WatchItemsService {
   }
 
   async recordCheckSuccess(input: CheckSuccessInput): Promise<void> {
+    const updateStockSyntax = input.isOutOfStock !== undefined 
+        ? `, is_out_of_stock = ${input.isOutOfStock ? 1 : 0}` 
+        : "";
+    const insertStockCol = input.isOutOfStock !== undefined ? ", is_out_of_stock" : "";
+    const insertStockVal = input.isOutOfStock !== undefined ? `, ${input.isOutOfStock ? 1 : 0}` : "";
+
     await this.database.withTransaction(async (connection) => {
       await connection.execute(
         `INSERT INTO watch_state (
@@ -475,8 +504,8 @@ export class WatchItemsService {
           last_matched_parser_id,
           last_confidence,
           last_verified_by_recheck,
-          updated_at
-        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, NOW(3))
+          updated_at${insertStockCol}
+        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, NOW(3)${insertStockVal})
         ON DUPLICATE KEY UPDATE
           failures = 0,
           last_error = NULL,
@@ -485,7 +514,7 @@ export class WatchItemsService {
           last_matched_parser_id = VALUES(last_matched_parser_id),
           last_confidence = VALUES(last_confidence),
           last_verified_by_recheck = VALUES(last_verified_by_recheck),
-          updated_at = NOW(3)`,
+          updated_at = NOW(3)${updateStockSyntax}`,
         [
           input.itemId,
           input.price,

@@ -114,6 +114,17 @@
   border-color: rgba(255, 107, 107, 0.4);
 }
 
+.cardSoldOut {
+  opacity: 0.65;
+  background: rgba(255, 255, 255, 0.02);
+  border-style: dashed;
+}
+
+.cardSoldOut .priceCurrent,
+.cardSoldOut .priceTarget {
+  color: var(--ink-muted);
+}
+
 .cardTop {
   display: flex;
   justify-content: space-between;

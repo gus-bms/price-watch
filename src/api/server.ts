@@ -145,7 +145,11 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           const body = fetched.body;
           contentType = fetched.contentType;
 
-          for (const [index, parserCandidate] of item.parsers.entries()) {
+          const priceParsers = item.parsers.filter(p => !p.kind || p.kind === "price");
+          const stockParser = item.parsers.find(p => p.kind === "stock" && p.pattern);
+          const sizeStockParsers = item.parsers.filter(p => p.kind === "size_stock" && p.pattern && p.targetSize);
+
+          for (const [index, parserCandidate] of priceParsers.entries()) {
             try {
               const parsedPrice = parser.parsePrice(
                 body,
@@ -181,6 +185,31 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
                 verifiedByRecheck = true;
               }
 
+              let isOutOfStock: boolean | undefined = undefined;
+
+              if (stockParser && stockParser.pattern) {
+                isOutOfStock = parser.parseOutOfStock(body, {
+                  outOfStockPattern: stockParser.pattern,
+                  flags: stockParser.flags || "i"
+                });
+              }
+
+              if (sizeStockParsers.length > 0) {
+                const sspConfigs = sizeStockParsers.map(p => ({
+                   size: p.targetSize!,
+                   pattern: p.pattern!,
+                   flags: p.flags || "i"
+                }));
+                const sizeResults = parser.parseSizeStock(body, sspConfigs);
+                
+                if (item.size) {
+                   const targetSizeResult = sizeResults.find(r => r.size.toUpperCase() === item.size!.toUpperCase());
+                   if (targetSizeResult) {
+                      isOutOfStock = !targetSizeResult.inStock;
+                   }
+                }
+              }
+
               const finishedAt = Date.now();
 
               await itemsService.recordCheckSuccess({
@@ -188,6 +217,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
                 startedAt,
                 finishedAt,
                 price: parsedPrice,
+                isOutOfStock,
                 confidence,
                 verifiedByRecheck,
                 matchedParserId: parserCandidate.id,
@@ -197,6 +227,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
 
               sendJson(response, 200, {
                 price: parsedPrice,
+                isOutOfStock,
                 matchedParser: {
                   type: parserCandidate.type,
                   pattern: parserCandidate.pattern,
@@ -286,6 +317,11 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         const sizeStockPatterns = Array.isArray(payload.sizeStockPatterns)
           ? (payload.sizeStockPatterns as Array<{ size: string; pattern: string; flags: string }>)
           : [];
+          
+        let initialIsOutOfStock: boolean | undefined = undefined;
+        if (isRecord(payload.testRun) && typeof payload.testRun.isOutOfStock === "boolean") {
+            initialIsOutOfStock = payload.testRun.isOutOfStock;
+        }
 
         await itemsService.saveLlmParsers({
           watchId: id,
@@ -293,7 +329,8 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           priceFlags,
           stockPattern,
           stockFlags,
-          sizeStockPatterns
+          sizeStockPatterns,
+          initialIsOutOfStock
         });
 
         sendJson(response, 200, { ok: true });

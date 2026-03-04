@@ -39,8 +39,10 @@ export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: Wat
         .join(" ")
     : null;
 
+  const cardClassName = `${styles.card} ${item.lastError ? styles.cardError : isOutOfStock ? styles.cardSoldOut : ""}`;
+
   return (
-    <article className={`${styles.card} ${item.lastError ? styles.cardError : ""}`}>
+    <article className={cardClassName}>
       <div className={styles.cardTop}>
         <div>
           <h3 className={styles.cardName}>{item.name}</h3>

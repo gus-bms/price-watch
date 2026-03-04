@@ -9,7 +9,7 @@ import { LlmAnalysisOverlay } from "./LlmAnalysisOverlay";
 type AddItemModalProps = {
   mode: "create" | "edit";
   initialItem: WatchItem | null;
-  onSubmit: (item: WatchItem) => void;
+  onSubmit: (item: WatchItem) => Promise<void>;
   onClose: () => void;
 };
 
@@ -85,7 +85,7 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
     setCancelLlm(() => cancel);
   }
 
-  function handleSubmitStep3(event: FormEvent) {
+  async function handleSubmitStep3(event: FormEvent) {
     event.preventDefault();
     setError("");
     
@@ -128,12 +128,17 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose }: AddItemMo
       matchConfidence: initialItem?.matchConfidence, fallbackVerified: initialItem?.fallbackVerified
     };
 
-    if (llmResult) {
-      void saveLlmParsers(submittedItem.id, llmResult).catch((err) => {
-        console.warn("LLM parser save failed:", err instanceof Error ? err.message : String(err));
-      });
+    try {
+      await onSubmit(submittedItem);
+      if (mode === "create" && llmResult) {
+        await saveLlmParsers(submittedItem.id, llmResult).catch((err) => {
+          console.warn("LLM parser save failed:", err instanceof Error ? err.message : String(err));
+        });
+      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
-    onSubmit(submittedItem);
   }
 
   if (llmAnalyzing || (llmSteps.length > 0 && !llmResult && step === 2)) {

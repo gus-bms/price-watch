@@ -36,6 +36,7 @@ export type CheckSuccess = {
   matchedPattern?: string;
   confidence: MatchConfidence;
   verifiedByRecheck: boolean;
+  isOutOfStock?: boolean;
 };
 
 export type LlmApiKey = {
