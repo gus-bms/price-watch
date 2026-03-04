@@ -20,7 +20,7 @@ export class GeminiService {
 
       try {
         const genAI = new GoogleGenerativeAI(keyEntry.apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const result = await model.generateContent(prompt);
         return result.response.text();
       } catch (err: unknown) {

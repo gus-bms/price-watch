@@ -25,12 +25,12 @@ export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: Wat
   }`;
 
   const badgeText = item.lastError
-    ? "Error"
+    ? "오류"
     : isOutOfStock
-      ? "품절"
+      ? "재입고 대기중"
       : isBelowTarget
-        ? "Below target"
-        : "Watching";
+        ? "목표가 도달!"
+        : "가격 추적중";
 
   // 사이즈별 재고 요약
   const sizeStockSummary = item.sizeStockJson

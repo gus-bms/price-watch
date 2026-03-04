@@ -105,10 +105,12 @@ export async function saveLlmParsers(
 
 export function streamLlmAnalysis(
   url: string,
+  size: string | undefined,
   onProgress: (progress: LlmAnalysisProgress) => void
 ): () => void {
+  const sizeParam = size ? `&size=${encodeURIComponent(size)}` : "";
   const es = new EventSource(
-    `${API_BASE}/api/items/analyze-stream?url=${encodeURIComponent(url)}`
+    `${API_BASE}/api/items/analyze-stream?url=${encodeURIComponent(url)}${sizeParam}`
   );
 
   es.onmessage = (event: MessageEvent<string>) => {

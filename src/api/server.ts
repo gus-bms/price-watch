@@ -26,7 +26,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
   const parser = new PriceParserService();
   const llmKeyService = new LlmKeyService(database);
   const geminiService = new GeminiService(llmKeyService);
-  const parserGenerator = new ParserGeneratorService(geminiService, fetcher);
+  const parserGenerator = new ParserGeneratorService(geminiService, fetcher, parser);
 
   const port = toPort(process.env.APP_PORT, 4000);
   const host = process.env.APP_HOST ?? "0.0.0.0";
@@ -236,6 +236,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
       // ── LLM 파서 분석 (SSE 스트림) ─────────────────────────────────────────
       if (request.method === "GET" && url.pathname === "/api/items/analyze-stream") {
         const targetUrl = url.searchParams.get("url");
+        const targetSize = url.searchParams.get("size") || undefined;
         if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
           sendJson(response, 400, { error: "url query param is required (https://...)" });
           return;
@@ -254,7 +255,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         };
 
         try {
-          await parserGenerator.generate(targetUrl, (progress) => {
+          await parserGenerator.generate(targetUrl, targetSize, (progress) => {
             sendEvent(progress);
           });
         } catch (err) {
@@ -589,7 +590,7 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, Js
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 }
 
 function sendJson(
