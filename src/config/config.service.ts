@@ -6,7 +6,7 @@ import {
   type ParserConfig,
   type SizeStockParser,
   type WatchConfig,
-  type WatchItem
+  type WatchItem,
 } from "../runner/types";
 
 const DEFAULT_GLOBAL: GlobalConfig = {
@@ -14,12 +14,14 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   timeoutMs: 15_000,
   userAgent: "price-watch/0.1 (+local)",
   maxBackoffMinutes: 60,
-  minNotifyIntervalMinutes: 60
+  minNotifyIntervalMinutes: 60,
 };
 
 @Injectable()
 export class ConfigService {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+  ) {}
 
   async loadConfig(): Promise<WatchConfig> {
     const globalRows = await this.database.queryRows<GlobalRow[]>(
@@ -31,7 +33,7 @@ export class ConfigService {
         min_notify_interval_minutes
        FROM watch_global_config
        WHERE id = 1
-       LIMIT 1`
+       LIMIT 1`,
     );
 
     const itemRows = await this.database.queryRows<ItemRow[]>(
@@ -45,11 +47,13 @@ export class ConfigService {
         interval_minutes
        FROM watch_item
        WHERE enabled = 1
-       ORDER BY created_at ASC, id ASC`
+       ORDER BY created_at ASC, id ASC`,
     );
 
     if (itemRows.length === 0) {
-      throw new Error("watch_item table has no enabled rows");
+      console.warn(
+        "[Config] watch_item table has no enabled rows. Waiting for items to be added.",
+      );
     }
 
     const watchIds = itemRows.map((row) => row.id);
@@ -57,19 +61,43 @@ export class ConfigService {
 
     // parser_kind 별로 분류
     const priceParserByWatchId = new Map<string, ParserConfig>();
-    const stockParserByWatchId = new Map<string, { pattern: string; flags: string }>();
+    const stockParserByWatchId = new Map<
+      string,
+      { pattern: string; flags: string }
+    >();
     const sizeStockParsersByWatchId = new Map<string, SizeStockParser[]>();
 
     for (const row of parserRows) {
-      if (row.parser_kind === "price" && !priceParserByWatchId.has(row.watch_id)) {
+      if (
+        row.parser_kind === "price" &&
+        !priceParserByWatchId.has(row.watch_id)
+      ) {
         priceParserByWatchId.set(row.watch_id, toParserConfig(row));
-      } else if (row.parser_kind === "stock" && !stockParserByWatchId.has(row.watch_id) && row.pattern) {
-        stockParserByWatchId.set(row.watch_id, { pattern: row.pattern, flags: row.flags });
-      } else if (row.parser_kind === "size_stock" && row.pattern && row.target_size) {
+      } else if (
+        row.parser_kind === "stock" &&
+        !stockParserByWatchId.has(row.watch_id) &&
+        row.pattern
+      ) {
+        stockParserByWatchId.set(row.watch_id, {
+          pattern: row.pattern,
+          flags: row.flags,
+        });
+      } else if (
+        row.parser_kind === "size_stock" &&
+        row.pattern &&
+        row.target_size
+      ) {
         const existing = sizeStockParsersByWatchId.get(row.watch_id) ?? [];
-        existing.push({ size: row.target_size, pattern: row.pattern, flags: row.flags });
+        existing.push({
+          size: row.target_size,
+          pattern: row.pattern,
+          flags: row.flags,
+        });
         sizeStockParsersByWatchId.set(row.watch_id, existing);
-      } else if (row.parser_kind === "price" && !priceParserByWatchId.has(row.watch_id)) {
+      } else if (
+        row.parser_kind === "price" &&
+        !priceParserByWatchId.has(row.watch_id)
+      ) {
         // fallback: parser_kind 없는 기존 파서는 price로 취급
         priceParserByWatchId.set(row.watch_id, toParserConfig(row));
       }
@@ -85,7 +113,9 @@ export class ConfigService {
       const parser = priceParserByWatchId.get(row.id);
 
       if (!parser) {
-        throw new Error(`watch_item '${row.id}' does not have an enabled price parser`);
+        throw new Error(
+          `watch_item '${row.id}' does not have an enabled price parser`,
+        );
       }
 
       const targetPrice = Number(row.target_price);
@@ -109,7 +139,7 @@ export class ConfigService {
         parser,
         stockParser: stockParserByWatchId.get(row.id),
         sizeStockParsers: sizeStockParsersByWatchId.get(row.id),
-        intervalMinutes
+        intervalMinutes,
       };
     });
 
@@ -117,6 +147,10 @@ export class ConfigService {
   }
 
   private async loadParsers(watchIds: string[]): Promise<ParserRow[]> {
+    if (watchIds.length === 0) {
+      return [];
+    }
+
     const placeholders = watchIds.map(() => "?").join(", ");
 
     return this.database.queryRows<ParserRow[]>(
@@ -133,7 +167,7 @@ export class ConfigService {
        WHERE enabled = 1
          AND watch_id IN (${placeholders})
        ORDER BY watch_id ASC, position ASC`,
-      watchIds
+      watchIds,
     );
   }
 }
@@ -173,37 +207,41 @@ function toGlobalConfig(row: GlobalRow): GlobalConfig {
     timeoutMs: Number(row.timeout_ms),
     userAgent: row.user_agent,
     maxBackoffMinutes: Number(row.max_backoff_minutes),
-    minNotifyIntervalMinutes: Number(row.min_notify_interval_minutes)
+    minNotifyIntervalMinutes: Number(row.min_notify_interval_minutes),
   };
 }
 
 function toParserConfig(row: ParserRow): ParserConfig {
   if (row.parser_type === "regex") {
     if (!row.pattern) {
-      throw new Error(`watch_item '${row.watch_id}' has regex parser without pattern`);
+      throw new Error(
+        `watch_item '${row.watch_id}' has regex parser without pattern`,
+      );
     }
 
     return {
       type: "regex",
       pattern: row.pattern,
-      flags: row.flags || ""
+      flags: row.flags || "",
     };
   }
 
   if (!row.json_path) {
-    throw new Error(`watch_item '${row.watch_id}' has jsonPath parser without path`);
+    throw new Error(
+      `watch_item '${row.watch_id}' has jsonPath parser without path`,
+    );
   }
 
   return {
     type: "jsonPath",
-    path: row.json_path
+    path: row.json_path,
   };
 }
 
 function toPositiveNumber(
   value: number,
   fieldName: string,
-  fallback: number
+  fallback: number,
 ): number {
   const parsed = Number(value ?? fallback);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -217,18 +255,22 @@ function assertGlobalConfig(config: GlobalConfig): void {
   toPositiveNumber(
     config.defaultIntervalMinutes,
     "global.defaultIntervalMinutes",
-    DEFAULT_GLOBAL.defaultIntervalMinutes
+    DEFAULT_GLOBAL.defaultIntervalMinutes,
   );
-  toPositiveNumber(config.timeoutMs, "global.timeoutMs", DEFAULT_GLOBAL.timeoutMs);
+  toPositiveNumber(
+    config.timeoutMs,
+    "global.timeoutMs",
+    DEFAULT_GLOBAL.timeoutMs,
+  );
   toPositiveNumber(
     config.maxBackoffMinutes,
     "global.maxBackoffMinutes",
-    DEFAULT_GLOBAL.maxBackoffMinutes
+    DEFAULT_GLOBAL.maxBackoffMinutes,
   );
   toPositiveNumber(
     config.minNotifyIntervalMinutes,
     "global.minNotifyIntervalMinutes",
-    DEFAULT_GLOBAL.minNotifyIntervalMinutes
+    DEFAULT_GLOBAL.minNotifyIntervalMinutes,
   );
   if (!config.userAgent.trim()) {
     throw new Error("global.userAgent is required");
