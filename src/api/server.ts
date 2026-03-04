@@ -3,6 +3,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { URL } from "node:url";
 import { DatabaseService } from "../database/database.service";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
+import { GeminiService } from "../llm/gemini.service";
+import { LlmKeyService } from "../llm/llm-key.service";
+import { ParserGeneratorService } from "../llm/parser-generator.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { type ParserConfig } from "../runner/types";
 import { WatchItemsService } from "./watch-items.service";
@@ -21,6 +24,9 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
   const itemsService = new WatchItemsService(database);
   const fetcher = new HttpFetcherService();
   const parser = new PriceParserService();
+  const llmKeyService = new LlmKeyService(database);
+  const geminiService = new GeminiService(llmKeyService);
+  const parserGenerator = new ParserGeneratorService(geminiService, fetcher);
 
   const port = toPort(process.env.APP_PORT, 4000);
   const host = process.env.APP_HOST ?? "0.0.0.0";
@@ -58,6 +64,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
+          size: normalized.size,
           patterns: normalized.patterns
         });
 
@@ -80,6 +87,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
+          size: normalized.size,
           patterns: normalized.patterns
         });
 
@@ -225,6 +233,129 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         }
       }
 
+      // ── LLM 파서 분석 (SSE 스트림) ─────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/items/analyze-stream") {
+        const targetUrl = url.searchParams.get("url");
+        if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+          sendJson(response, 400, { error: "url query param is required (https://...)" });
+          return;
+        }
+
+        // SSE 헤더
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*"
+        });
+
+        const sendEvent = (data: Record<string, unknown>): void => {
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        try {
+          await parserGenerator.generate(targetUrl, (progress) => {
+            sendEvent(progress);
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          sendEvent({ step: "error", message, error: message });
+        } finally {
+          response.end();
+        }
+
+        return;
+      }
+
+      // ── LLM 파서 저장 (아이템에 LLM 생성 파서 적용) ──────────────────────
+      if (request.method === "POST" && url.pathname.startsWith("/api/items/") && url.pathname.endsWith("/parsers/llm")) {
+        const id = decodeURIComponent(
+          url.pathname.replace("/api/items/", "").replace("/parsers/llm", "")
+        );
+        if (!id) {
+          sendJson(response, 400, { error: "Item id is required" });
+          return;
+        }
+
+        const payload = await readJsonBody(request);
+        const pricePattern = requireString(payload.pricePattern, "pricePattern");
+        const priceFlags = typeof payload.priceFlags === "string" ? payload.priceFlags : "gi";
+        const stockPattern = typeof payload.stockPattern === "string" ? payload.stockPattern : null;
+        const stockFlags = typeof payload.stockFlags === "string" ? payload.stockFlags : "i";
+        const sizeStockPatterns = Array.isArray(payload.sizeStockPatterns)
+          ? (payload.sizeStockPatterns as Array<{ size: string; pattern: string; flags: string }>)
+          : [];
+
+        await itemsService.saveLlmParsers({
+          watchId: id,
+          pricePattern,
+          priceFlags,
+          stockPattern,
+          stockFlags,
+          sizeStockPatterns
+        });
+
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      // ── LLM API 키 관리 ─────────────────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/llm-keys") {
+        const keys = await itemsService.listLlmApiKeys();
+        sendJson(response, 200, keys);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/llm-keys") {
+        const payload = await readJsonBody(request);
+        const label = requireString(payload.label, "label");
+        const apiKey = requireString(payload.apiKey, "apiKey");
+        const provider = "gemini" as const;
+
+        const id = await itemsService.createLlmApiKey({ provider, label, apiKey });
+        sendJson(response, 201, { id });
+        return;
+      }
+
+      if (request.method === "DELETE" && url.pathname.startsWith("/api/llm-keys/")) {
+        const idStr = url.pathname.replace("/api/llm-keys/", "");
+        const id = Number(idStr);
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJson(response, 400, { error: "Invalid id" });
+          return;
+        }
+
+        const deleted = await itemsService.deleteLlmApiKey(id);
+        if (!deleted) {
+          sendJson(response, 404, { error: "Key not found" });
+          return;
+        }
+
+        response.writeHead(204).end();
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname.startsWith("/api/llm-keys/")) {
+        const idStr = url.pathname.replace("/api/llm-keys/", "");
+        const id = Number(idStr);
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJson(response, 400, { error: "Invalid id" });
+          return;
+        }
+
+        const payload = await readJsonBody(request);
+        const enabled = Boolean(payload.isEnabled);
+        const updated = await itemsService.toggleLlmApiKey(id, enabled);
+
+        if (!updated) {
+          sendJson(response, 404, { error: "Key not found" });
+          return;
+        }
+
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
       sendJson(response, 404, { error: "Not found" });
     } catch (error) {
       if (isDuplicateKeyError(error)) {
@@ -276,6 +407,7 @@ type NormalizedItemPayload = {
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string | undefined;
   patterns: string[];
 };
 
@@ -288,6 +420,7 @@ function normalizeItemPayload(
   const name = requireString(payload.name, "name");
   const url = requireString(payload.url, "url");
   const currency = requireString(payload.currency, "currency");
+  const size = normalizeOptionalString(payload.size);
   const targetPrice = Number(payload.targetPrice);
 
   if (!/^https?:\/\//i.test(url)) {
@@ -321,6 +454,7 @@ function normalizeItemPayload(
     url,
     targetPrice,
     currency,
+    size,
     patterns
   };
 }

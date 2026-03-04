@@ -102,22 +102,45 @@ export class SchedulerService implements OnModuleDestroy {
 
       const price = this.parser.parsePrice(body, item.parser);
       parsedPrice = price;
-
       itemState.lastPrice = price;
       itemState.lastError = undefined;
 
+      // ── 품절/재고 감지 ───────────────────────────────────────────────────
+      const prevOutOfStock = itemState.isOutOfStock;
+
+      if (item.stockParser) {
+        itemState.isOutOfStock = this.parser.parseOutOfStock(body, {
+          outOfStockPattern: item.stockParser.pattern,
+          flags: item.stockParser.flags
+        });
+      }
+
+      if (item.sizeStockParsers && item.sizeStockParsers.length > 0) {
+        const sizeResults = this.parser.parseSizeStock(body, item.sizeStockParsers);
+        const sizeStockJson: Record<string, boolean> = {};
+        for (const { size, inStock } of sizeResults) {
+          sizeStockJson[size] = inStock;
+        }
+        itemState.sizeStockJson = sizeStockJson;
+
+        // 등록된 사이즈가 있으면 해당 사이즈 기준으로 품절 여부 결정
+        if (item.size) {
+          const targetSizeInStock = sizeStockJson[item.size];
+          if (targetSizeInStock !== undefined) {
+            itemState.isOutOfStock = !targetSizeInStock;
+          }
+        }
+      }
+
+      // ── 알림 조건 체크 ───────────────────────────────────────────────────
       const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
       const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
       const now = Date.now();
       const canNotify = now - lastNotifiedAt >= minNotifyMs;
 
+      // 1) 가격 목표 달성 알림
       if (price <= item.targetPrice && canNotify) {
-        this.notifier.notify({
-          item,
-          price,
-          currency: item.currency,
-          url: item.url
-        });
+        this.notifier.notify({ item, price, currency: item.currency, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
@@ -130,6 +153,29 @@ export class SchedulerService implements OnModuleDestroy {
 
         itemState.lastNotifiedAt = now;
         itemState.lastNotifiedPrice = price;
+      }
+
+      // 2) 재입고 알림 (품절 → 재고있음 전환)
+      if (
+        prevOutOfStock === true &&
+        itemState.isOutOfStock === false &&
+        canNotify
+      ) {
+        const sizeLabel = item.size ? ` [사이즈: ${item.size}]` : "";
+        const message = `[재입고]${sizeLabel} ${item.name} - ${price} ${item.currency ?? ""} | ${item.url}`;
+        console.log(`[${new Date().toISOString()}] ${message}`);
+
+        await this.stateService.recordNotification({
+          watchId: item.id,
+          price,
+          targetPriceSnapshot: item.targetPrice,
+          currency: item.currency,
+          channel: "console",
+          status: "sent",
+          message
+        });
+
+        itemState.lastNotifiedAt = now;
       }
 
       itemState.failures = 0;

@@ -16,6 +16,8 @@ type StateRow = RowDataPacket & {
   last_checked_at: Date | string | null;
   last_notified_at: Date | string | null;
   last_notified_price: number | string | null;
+  is_out_of_stock: number | boolean | null;
+  size_stock_json: string | null;
 };
 
 type CheckRunInput = {
@@ -61,7 +63,9 @@ export class StateService {
         last_price,
         last_checked_at,
         last_notified_at,
-        last_notified_price
+        last_notified_price,
+        is_out_of_stock,
+        size_stock_json
        FROM watch_state
        WHERE watch_id IN (${placeholders})`,
       itemIds
@@ -70,13 +74,24 @@ export class StateService {
     const items: RunnerState["items"] = {};
 
     for (const row of rows) {
+      let sizeStockJson: Record<string, boolean> | undefined;
+      if (row.size_stock_json) {
+        try {
+          sizeStockJson = JSON.parse(row.size_stock_json) as Record<string, boolean>;
+        } catch {
+          sizeStockJson = undefined;
+        }
+      }
+
       items[row.watch_id] = {
         failures: Number(row.failures || 0),
         lastError: row.last_error ?? undefined,
         lastPrice: toNullableNumber(row.last_price),
         lastCheckedAt: toNullableMillis(row.last_checked_at),
         lastNotifiedAt: toNullableMillis(row.last_notified_at),
-        lastNotifiedPrice: toNullableNumber(row.last_notified_price)
+        lastNotifiedPrice: toNullableNumber(row.last_notified_price),
+        isOutOfStock: row.is_out_of_stock === null ? undefined : Boolean(row.is_out_of_stock),
+        sizeStockJson
       };
     }
 
@@ -84,6 +99,10 @@ export class StateService {
   }
 
   async saveItemState(watchId: string, state: ItemState): Promise<void> {
+    const sizeStockJsonStr = state.sizeStockJson
+      ? JSON.stringify(state.sizeStockJson)
+      : null;
+
     await this.database.execute(
       `INSERT INTO watch_state (
         watch_id,
@@ -93,8 +112,10 @@ export class StateService {
         last_checked_at,
         last_notified_at,
         last_notified_price,
+        is_out_of_stock,
+        size_stock_json,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3))
       ON DUPLICATE KEY UPDATE
         failures = VALUES(failures),
         last_error = VALUES(last_error),
@@ -102,6 +123,8 @@ export class StateService {
         last_checked_at = VALUES(last_checked_at),
         last_notified_at = VALUES(last_notified_at),
         last_notified_price = VALUES(last_notified_price),
+        is_out_of_stock = VALUES(is_out_of_stock),
+        size_stock_json = VALUES(size_stock_json),
         updated_at = NOW(3)`,
       [
         watchId,
@@ -110,7 +133,9 @@ export class StateService {
         state.lastPrice ?? null,
         toDate(state.lastCheckedAt),
         toDate(state.lastNotifiedAt),
-        state.lastNotifiedPrice ?? null
+        state.lastNotifiedPrice ?? null,
+        state.isOutOfStock ?? null,
+        sizeStockJsonStr
       ]
     );
   }

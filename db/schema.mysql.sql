@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS watch_item (
   url VARCHAR(2048) NOT NULL,
   target_price DECIMAL(18,4) NOT NULL,
   currency VARCHAR(16) NULL,
+  size VARCHAR(50) NULL,
   interval_minutes INT UNSIGNED NOT NULL,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -49,9 +50,13 @@ CREATE TABLE IF NOT EXISTS watch_parser (
   position INT UNSIGNED NOT NULL,
   tier ENUM('primary', 'secondary', 'fallback') NULL,
   parser_type ENUM('regex', 'jsonPath') NOT NULL,
+  -- 'price': 가격 추출, 'stock': 품절 여부, 'size_stock': 사이즈별 재고
+  parser_kind ENUM('price', 'stock', 'size_stock') NOT NULL DEFAULT 'price',
   pattern TEXT NULL,
   flags VARCHAR(32) NOT NULL DEFAULT '',
   json_path VARCHAR(512) NULL,
+  -- size_stock 파서의 경우 대상 사이즈 (watch_item.size 와 매칭)
+  target_size VARCHAR(50) NULL,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
@@ -65,7 +70,8 @@ CREATE TABLE IF NOT EXISTS watch_parser (
     (parser_type = 'jsonPath' AND json_path IS NOT NULL AND pattern IS NULL)
   ),
 
-  KEY idx_parser_watch_enabled_pos (watch_id, enabled, position)
+  KEY idx_parser_watch_enabled_pos (watch_id, enabled, position),
+  KEY idx_parser_kind (parser_kind)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS watch_state (
@@ -79,6 +85,10 @@ CREATE TABLE IF NOT EXISTS watch_state (
   last_matched_parser_id BIGINT UNSIGNED NULL,
   last_confidence ENUM('high', 'medium', 'low') NULL,
   last_verified_by_recheck BOOLEAN NULL,
+  -- 품절 여부 (stock/size_stock 파서 결과)
+  is_out_of_stock BOOLEAN NULL,
+  -- 사이즈별 재고 현황 JSON: {"M": true, "L": false, ...} (true=재고있음)
+  size_stock_json JSON NULL,
   next_run_at DATETIME(3) NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
     ON UPDATE CURRENT_TIMESTAMP(3),
@@ -148,6 +158,25 @@ CREATE TABLE IF NOT EXISTS watch_notification (
   KEY idx_notification_watch_sent (watch_id, sent_at),
   KEY idx_notification_channel_sent (channel, sent_at),
   KEY idx_notification_status_sent (status, sent_at)
+) ENGINE=InnoDB;
+
+-- LLM API 키 관리: 여러 개의 Gemini 무료 키를 라운드로빈으로 사용
+CREATE TABLE IF NOT EXISTS llm_api_key (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  provider ENUM('gemini') NOT NULL DEFAULT 'gemini',
+  label VARCHAR(100) NOT NULL COMMENT '키 식별용 라벨 (예: gemini-free-01)',
+  api_key VARCHAR(512) NOT NULL,
+  is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  last_used_at DATETIME(3) NULL COMMENT '라운드로빈 선택 기준',
+  quota_error_at DATETIME(3) NULL COMMENT '마지막 quota 초과 발생 시각',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+    ON UPDATE CURRENT_TIMESTAMP(3),
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_llm_api_key_label (label),
+
+  KEY idx_llm_key_enabled_used (is_enabled, last_used_at)
 ) ENGINE=InnoDB;
 
 INSERT INTO watch_global_config (id)

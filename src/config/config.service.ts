@@ -4,6 +4,7 @@ import { DatabaseService } from "../database/database.service";
 import {
   type GlobalConfig,
   type ParserConfig,
+  type SizeStockParser,
   type WatchConfig,
   type WatchItem
 } from "../runner/types";
@@ -40,6 +41,7 @@ export class ConfigService {
         url,
         target_price,
         currency,
+        size,
         interval_minutes
        FROM watch_item
        WHERE enabled = 1
@@ -50,15 +52,27 @@ export class ConfigService {
       throw new Error("watch_item table has no enabled rows");
     }
 
-    const parserRows = await this.loadParsers(itemRows.map((row) => row.id));
-    const parserByWatchId = new Map<string, ParserConfig>();
+    const watchIds = itemRows.map((row) => row.id);
+    const parserRows = await this.loadParsers(watchIds);
+
+    // parser_kind 별로 분류
+    const priceParserByWatchId = new Map<string, ParserConfig>();
+    const stockParserByWatchId = new Map<string, { pattern: string; flags: string }>();
+    const sizeStockParsersByWatchId = new Map<string, SizeStockParser[]>();
 
     for (const row of parserRows) {
-      if (parserByWatchId.has(row.watch_id)) {
-        continue;
+      if (row.parser_kind === "price" && !priceParserByWatchId.has(row.watch_id)) {
+        priceParserByWatchId.set(row.watch_id, toParserConfig(row));
+      } else if (row.parser_kind === "stock" && !stockParserByWatchId.has(row.watch_id) && row.pattern) {
+        stockParserByWatchId.set(row.watch_id, { pattern: row.pattern, flags: row.flags });
+      } else if (row.parser_kind === "size_stock" && row.pattern && row.target_size) {
+        const existing = sizeStockParsersByWatchId.get(row.watch_id) ?? [];
+        existing.push({ size: row.target_size, pattern: row.pattern, flags: row.flags });
+        sizeStockParsersByWatchId.set(row.watch_id, existing);
+      } else if (row.parser_kind === "price" && !priceParserByWatchId.has(row.watch_id)) {
+        // fallback: parser_kind 없는 기존 파서는 price로 취급
+        priceParserByWatchId.set(row.watch_id, toParserConfig(row));
       }
-
-      parserByWatchId.set(row.watch_id, toParserConfig(row));
     }
 
     const firstGlobalRow = globalRows[0];
@@ -68,10 +82,10 @@ export class ConfigService {
     assertGlobalConfig(global);
 
     const items: WatchItem[] = itemRows.map((row) => {
-      const parser = parserByWatchId.get(row.id);
+      const parser = priceParserByWatchId.get(row.id);
 
       if (!parser) {
-        throw new Error(`watch_item '${row.id}' does not have an enabled parser`);
+        throw new Error(`watch_item '${row.id}' does not have an enabled price parser`);
       }
 
       const targetPrice = Number(row.target_price);
@@ -91,7 +105,10 @@ export class ConfigService {
         url: row.url,
         targetPrice,
         currency: row.currency ?? undefined,
+        size: row.size ?? undefined,
         parser,
+        stockParser: stockParserByWatchId.get(row.id),
+        sizeStockParsers: sizeStockParsersByWatchId.get(row.id),
         intervalMinutes
       };
     });
@@ -106,9 +123,11 @@ export class ConfigService {
       `SELECT
         watch_id,
         parser_type,
+        parser_kind,
         pattern,
         flags,
         json_path,
+        target_size,
         position
        FROM watch_parser
        WHERE enabled = 1
@@ -133,15 +152,18 @@ type ItemRow = RowDataPacket & {
   url: string;
   target_price: number | string;
   currency: string | null;
+  size: string | null;
   interval_minutes: number;
 };
 
 type ParserRow = RowDataPacket & {
   watch_id: string;
   parser_type: "regex" | "jsonPath";
+  parser_kind: "price" | "stock" | "size_stock";
   pattern: string | null;
   flags: string;
   json_path: string | null;
+  target_size: string | null;
   position: number;
 };
 

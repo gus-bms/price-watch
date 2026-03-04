@@ -1,8 +1,42 @@
 import { Injectable } from "@nestjs/common";
 import { type ParserConfig } from "../runner/types";
 
+export type StockParserConfig = {
+  /** 품절 상태를 나타내는 정규식 (매칭되면 품절) */
+  outOfStockPattern: string;
+  flags?: string;
+};
+
+export type SizeStockResult = {
+  size: string;
+  inStock: boolean;
+};
+
 @Injectable()
 export class PriceParserService {
+  /**
+   * 품절 여부를 반환.
+   * stockPattern이 매칭되면 품절(true), 미매칭이면 재고있음(false).
+   */
+  parseOutOfStock(body: string, config: StockParserConfig): boolean {
+    const regex = new RegExp(config.outOfStockPattern, config.flags ?? "i");
+    return regex.test(body);
+  }
+
+  /**
+   * 사이즈별 재고 여부를 반환.
+   * 각 패턴이 매칭되면 해당 사이즈 재고있음(true).
+   */
+  parseSizeStock(
+    body: string,
+    sizePatterns: Array<{ size: string; pattern: string; flags?: string }>
+  ): SizeStockResult[] {
+    return sizePatterns.map(({ size, pattern, flags }) => ({
+      size,
+      inStock: new RegExp(pattern, flags ?? "i").test(body)
+    }));
+  }
+
   parsePrice(body: string, parser: ParserConfig): number {
     if (parser.type === "regex") {
       const regex = new RegExp(parser.pattern, parser.flags ?? "");
