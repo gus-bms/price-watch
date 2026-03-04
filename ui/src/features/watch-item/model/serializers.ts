@@ -1,4 +1,4 @@
-import { type CheckSuccess, type MatchConfidence, type WatchItem } from "./types";
+import { type CheckSuccess, type LlmApiKey, type MatchConfidence, type WatchItem } from "./types";
 
 type WatchItemPayload = {
   id: string;
@@ -6,6 +6,7 @@ type WatchItemPayload = {
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string;
   parser: {
     type: "regex";
     patterns: string[];
@@ -40,6 +41,11 @@ export function normalizeItems(value: unknown): WatchItem[] {
       .map((pattern) => (typeof pattern === "string" ? pattern.trim() : ""))
       .filter((pattern) => pattern.length > 0);
 
+    let sizeStockJson: Record<string, boolean> | undefined;
+    if (isRecord(item.sizeStockJson)) {
+      sizeStockJson = item.sizeStockJson as Record<string, boolean>;
+    }
+
     return [
       {
         id,
@@ -47,6 +53,7 @@ export function normalizeItems(value: unknown): WatchItem[] {
         url,
         targetPrice,
         currency: toOptionalString(item.currency) ?? "USD",
+        size: toOptionalString(item.size),
         parser: { type: "regex", patterns },
         lastPrice: toOptionalNumber(item.lastPrice),
         lastCheckedAt: toOptionalNumber(item.lastCheckedAt),
@@ -56,7 +63,10 @@ export function normalizeItems(value: unknown): WatchItem[] {
         fallbackVerified:
           typeof item.fallbackVerified === "boolean"
             ? item.fallbackVerified
-            : undefined
+            : undefined,
+        isOutOfStock:
+          typeof item.isOutOfStock === "boolean" ? item.isOutOfStock : undefined,
+        sizeStockJson
       }
     ];
   });
@@ -69,11 +79,35 @@ export function itemToPayload(item: WatchItem): WatchItemPayload {
     url: item.url,
     targetPrice: item.targetPrice,
     currency: item.currency,
+    size: item.size,
     parser: {
       type: "regex",
       patterns: item.parser.patterns
     }
   };
+}
+
+export function normalizeLlmKeys(value: unknown): LlmApiKey[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((row) => {
+    if (!isRecord(row)) return [];
+    const id = Number(row.id);
+    const label = toOptionalString(row.label);
+    if (!Number.isInteger(id) || !label) return [];
+
+    return [
+      {
+        id,
+        provider: "gemini" as const,
+        label,
+        isEnabled: Boolean(row.isEnabled),
+        lastUsedAt: toOptionalNumber(row.lastUsedAt),
+        quotaErrorAt: toOptionalNumber(row.quotaErrorAt),
+        createdAt: toOptionalNumber(row.createdAt) ?? Date.now()
+      }
+    ];
+  });
 }
 
 export function parseCheckSuccess(value: unknown): CheckSuccess {

@@ -1,10 +1,17 @@
 import {
   extractErrorMessage,
   itemToPayload,
+  normalizeLlmKeys,
   normalizeItems,
   parseCheckSuccess
 } from "../model/serializers";
-import { type CheckSuccess, type WatchItem } from "../model/types";
+import {
+  type CheckSuccess,
+  type GeneratedParsers,
+  type LlmApiKey,
+  type LlmAnalysisProgress,
+  type WatchItem
+} from "../model/types";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
@@ -74,6 +81,107 @@ export async function checkWatchItem(itemId: string): Promise<CheckSuccess> {
   }
 
   return parseCheckSuccess(data);
+}
+
+export async function saveLlmParsers(
+  itemId: string,
+  parsers: GeneratedParsers
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/items/${encodeURIComponent(itemId)}/parsers/llm`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(parsers)
+    }
+  );
+
+  const data = await safeJson(response);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(data, "Failed to save LLM parsers"));
+  }
+}
+
+export function streamLlmAnalysis(
+  url: string,
+  onProgress: (progress: LlmAnalysisProgress) => void
+): () => void {
+  const es = new EventSource(
+    `${API_BASE}/api/items/analyze-stream?url=${encodeURIComponent(url)}`
+  );
+
+  es.onmessage = (event: MessageEvent<string>) => {
+    try {
+      const progress = JSON.parse(event.data) as LlmAnalysisProgress;
+      onProgress(progress);
+
+      if (progress.step === "done" || progress.step === "error") {
+        es.close();
+      }
+    } catch {
+      // 파싱 실패는 무시
+    }
+  };
+
+  es.onerror = () => {
+    onProgress({ step: "error", message: "연결이 끊어졌습니다." });
+    es.close();
+  };
+
+  return () => {
+    es.close();
+  };
+}
+
+export async function listLlmApiKeys(): Promise<LlmApiKey[]> {
+  const response = await fetch(`${API_BASE}/api/llm-keys`);
+  const data = await safeJson(response);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(data, "Failed to load LLM keys"));
+  }
+
+  return normalizeLlmKeys(data);
+}
+
+export async function createLlmApiKey(label: string, apiKey: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/llm-keys`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider: "gemini", label, apiKey })
+  });
+
+  const data = await safeJson(response);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(data, "Failed to create LLM key"));
+  }
+}
+
+export async function deleteLlmApiKey(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/llm-keys/${id}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const data = await safeJson(response);
+    throw new Error(extractErrorMessage(data, "Failed to delete LLM key"));
+  }
+}
+
+export async function toggleLlmApiKey(id: number, isEnabled: boolean): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/llm-keys/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isEnabled })
+  });
+
+  const data = await safeJson(response);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(data, "Failed to update LLM key"));
+  }
 }
 
 async function safeJson(response: Response): Promise<unknown> {
