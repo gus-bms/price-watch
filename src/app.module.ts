@@ -6,6 +6,7 @@ import { LlmKeyService } from "./llm/llm-key.service";
 import { GeminiService } from "./llm/gemini.service";
 import { ParserGeneratorService } from "./llm/parser-generator.service";
 import { ConsoleNotifierService } from "./notifiers/console-notifier.service";
+import { SlackNotifierService } from "./notifiers/slack-notifier.service";
 import { PriceParserService } from "./parsers/price-parser.service";
 import { RunnerService } from "./runner/runner.service";
 import { SchedulerService } from "./runner/scheduler.service";
@@ -22,6 +23,7 @@ import { StateService } from "./storage/state.service";
     ParserGeneratorService,
     PriceParserService,
     ConsoleNotifierService,
+    SlackNotifierService,
     SchedulerService,
     RunnerService
   ]
