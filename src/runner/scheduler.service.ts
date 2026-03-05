@@ -1,6 +1,7 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
+import { SlackNotifierService } from "../notifiers/slack-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { StateService } from "../storage/state.service";
 import {
@@ -20,6 +21,8 @@ export class SchedulerService implements OnModuleDestroy {
     private readonly fetcher: HttpFetcherService,
     @Inject(ConsoleNotifierService)
     private readonly notifier: ConsoleNotifierService,
+    @Inject(SlackNotifierService)
+    private readonly slackNotifier: SlackNotifierService,
     @Inject(PriceParserService)
     private readonly parser: PriceParserService,
     @Inject(StateService)
@@ -155,6 +158,7 @@ export class SchedulerService implements OnModuleDestroy {
         : itemState.isOutOfStock !== true;
       if (canSendPriceAlert && price !== undefined && price <= item.targetPrice && canNotify) {
         this.notifier.notify({ item, price, currency: item.currency, url: item.url });
+        void this.slackNotifier.notify({ item, price, currency: item.currency, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
@@ -175,9 +179,8 @@ export class SchedulerService implements OnModuleDestroy {
         itemState.isOutOfStock === false &&
         canNotify
       ) {
-        const sizeLabel = item.size ? ` [사이즈: ${item.size}]` : "";
-        const message = `[재입고]${sizeLabel} ${item.name} - ${price} ${item.currency ?? ""} | ${item.url}`;
-        console.log(`[${new Date().toISOString()}] ${message}`);
+        this.notifier.notifyRestock({ item, url: item.url });
+        void this.slackNotifier.notifyRestock({ item, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
@@ -185,8 +188,7 @@ export class SchedulerService implements OnModuleDestroy {
           targetPriceSnapshot: item.targetPrice,
           currency: item.currency,
           channel: "console",
-          status: "sent",
-          message
+          status: "sent"
         });
 
         itemState.lastNotifiedAt = now;
