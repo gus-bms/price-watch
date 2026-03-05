@@ -107,6 +107,8 @@ export class SchedulerService implements OnModuleDestroy {
 
       // ── 품절/재고 감지 ───────────────────────────────────────────────────
       const prevOutOfStock = itemState.isOutOfStock;
+      // stock 파서가 하나라도 설정돼 있는지 (로드된 item 기준)
+      const hasStockTracking = !!(item.stockParser || item.sizeStockParsers?.length);
 
       if (item.stockParser) {
         itemState.isOutOfStock = this.parser.parseOutOfStock(body, {
@@ -132,6 +134,13 @@ export class SchedulerService implements OnModuleDestroy {
         }
       }
 
+      // stock 파서가 없으면 이전 상태를 그대로 유지한다.
+      // - saveItemState가 DB의 is_out_of_stock 값을 NULL로 덮어쓰는 것을 방지
+      // - saveLlmParsers 등으로 설정된 DB 값이 사라지지 않도록 보호
+      if (!hasStockTracking) {
+        itemState.isOutOfStock = prevOutOfStock;
+      }
+
       // ── 알림 조건 체크 ───────────────────────────────────────────────────
       const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
       const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
@@ -139,7 +148,12 @@ export class SchedulerService implements OnModuleDestroy {
       const canNotify = now - lastNotifiedAt >= minNotifyMs;
 
       // 1) 가격 목표 달성 알림 (재고가 있을 때만 동작)
-      if (itemState.isOutOfStock !== true && price !== undefined && price <= item.targetPrice && canNotify) {
+      // - stock 파서가 있으면: 명시적으로 재고있음(false)이어야 알림
+      // - stock 파서가 없으면: undefined(알 수 없음) = 순수 가격 추적 아이템으로 간주, 기존 동작 유지
+      const canSendPriceAlert = hasStockTracking
+        ? itemState.isOutOfStock === false
+        : itemState.isOutOfStock !== true;
+      if (canSendPriceAlert && price !== undefined && price <= item.targetPrice && canNotify) {
         this.notifier.notify({ item, price, currency: item.currency, url: item.url });
 
         await this.stateService.recordNotification({
