@@ -1,0 +1,78 @@
+name: Docker Publish
+
+# Publishes versioned Docker images to GitHub Container Registry (ghcr.io)
+# when a tag like v1.0.0 is pushed, or manually via workflow_dispatch.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. latest, v1.0.0)"
+        required: true
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/price-watch-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/price-watch-frontend
+
+jobs:
+  publish:
+    name: Build & Push Docker images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip "refs/tags/" prefix from tag push
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Backend ─────────────────────────────────────────────────────────────
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.value }}
+            ${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Frontend ─────────────────────────────────────────────────────────────
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.value }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+          build-args: |
+            VITE_API_BASE_URL=
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
