@@ -13,8 +13,11 @@ import {
   type WatchItem
 } from "../model/types";
 
+// When VITE_API_BASE_URL is empty (""), relative URLs are used — ideal for
+// production nginx reverse proxy (/api/* → backend:4000).
+// When running locally without Docker, falls back to http://localhost:4000.
 const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ??
   "http://localhost:4000";
 
 export async function listWatchItems(): Promise<WatchItem[]> {
