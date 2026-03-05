@@ -103,6 +103,27 @@ export class StateService {
       ? JSON.stringify(state.sizeStockJson)
       : null;
 
+    // is_out_of_stock이 undefined이면 DB 컬럼을 건드리지 않는다.
+    // saveLlmParsers 등에서 설정한 값을 스케줄러가 덮어쓰는 것을 방지.
+    const hasStockValue = state.isOutOfStock !== undefined;
+    const insertStockCol = hasStockValue ? ",\n        is_out_of_stock" : "";
+    const insertStockVal = hasStockValue ? ", ?" : "";
+    const updateStockSql = hasStockValue ? "is_out_of_stock = VALUES(is_out_of_stock)," : "";
+
+    const baseParams: (string | number | boolean | Date | null)[] = [
+      watchId,
+      Number(state.failures ?? 0),
+      state.lastError ?? null,
+      state.lastPrice ?? null,
+      toDate(state.lastCheckedAt),
+      toDate(state.lastNotifiedAt),
+      state.lastNotifiedPrice ?? null,
+      sizeStockJsonStr,
+    ];
+    if (hasStockValue) {
+      baseParams.push(state.isOutOfStock ? 1 : 0);
+    }
+
     await this.database.execute(
       `INSERT INTO watch_state (
         watch_id,
@@ -112,10 +133,9 @@ export class StateService {
         last_checked_at,
         last_notified_at,
         last_notified_price,
-        is_out_of_stock,
         size_stock_json,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3))
+        updated_at${insertStockCol}
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3)${insertStockVal})
       ON DUPLICATE KEY UPDATE
         failures = VALUES(failures),
         last_error = VALUES(last_error),
@@ -123,20 +143,10 @@ export class StateService {
         last_checked_at = VALUES(last_checked_at),
         last_notified_at = VALUES(last_notified_at),
         last_notified_price = VALUES(last_notified_price),
-        is_out_of_stock = VALUES(is_out_of_stock),
+        ${updateStockSql}
         size_stock_json = VALUES(size_stock_json),
         updated_at = NOW(3)`,
-      [
-        watchId,
-        Number(state.failures ?? 0),
-        state.lastError ?? null,
-        state.lastPrice ?? null,
-        toDate(state.lastCheckedAt),
-        toDate(state.lastNotifiedAt),
-        state.lastNotifiedPrice ?? null,
-        state.isOutOfStock ?? null,
-        sizeStockJsonStr
-      ]
+      baseParams
     );
   }
 
