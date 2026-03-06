@@ -156,31 +156,32 @@ ghcr.io/gus-bms/price-watch-frontend:v1.0.0
 ghcr.io/gus-bms/price-watch-frontend:latest
 ```
 
-### VM 자동 배포 연동 (선택)
+### AWS EC2 자동 재배포
 
-`docker-publish.yml`에 아래 스텝을 추가하면 태그 push만으로 VM까지 자동 배포됩니다.
+이 저장소에는 `main` 브랜치 push 시 EC2를 자동 재배포하는 workflow
+`.github/workflows/deploy-aws.yml` 이 포함되어 있습니다.
 
-```yaml
-- name: Deploy to VM
-  uses: appleboy/ssh-action@v1
-  with:
-    host: ${{ secrets.VM_HOST }}      # VM 공인 IP
-    username: ${{ secrets.VM_USER }}  # 예: ubuntu
-    key: ${{ secrets.VM_SSH_KEY }}    # SSH 개인키 전체 내용
-    script: |
-      cd ~/price-watch
-      git pull
-      docker compose pull
-      docker compose up -d --build
-```
+동작 방식:
 
-GitHub 저장소 → Settings → Secrets and variables → Actions 에서 등록:
+1. GitHub-hosted runner가 `linux/amd64` 백엔드/프론트 이미지를 빌드
+2. 이미지 archive와 배포 파일을 EC2 `~/price-watch-deploy` 로 전송
+3. EC2에서 `redeploy.sh` 실행
+4. `mysql` 기동 → 인증 스키마 마이그레이션 적용 → `backend/frontend` 재생성
+
+사전 조건:
+
+- EC2에 Docker와 Docker Compose가 설치되어 있어야 함
+- 서버의 `~/price-watch-deploy/.env` 가 미리 준비되어 있어야 함
+- 보안 그룹에서 `22`, `80` 포트 허용
+
+GitHub 저장소 → Settings → Secrets and variables → Actions 에 등록:
 
 | Secret 이름 | 값 |
 |-------------|-----|
-| `VM_HOST` | 서버 공인 IP |
-| `VM_USER` | SSH 접속 유저명 (예: `ubuntu`) |
-| `VM_SSH_KEY` | `~/.ssh/id_rsa` 또는 `id_ed25519` 전체 내용 |
+| `EC2_HOST` | 서버 공인 IP |
+| `EC2_USER` | SSH 접속 유저명 (예: `ec2-user`) |
+| `EC2_SSH_KEY` | EC2 접속용 PEM 개인키 전체 내용 |
+| `KAKAO_CLIENT_ID` | 프론트 빌드에 주입할 카카오 REST API 키 |
 
 ---
 
