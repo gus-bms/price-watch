@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Node
+node_modules
+npm-debug.log*
+
+# TypeScript output (rebuilt inside Docker)
+dist
+
+# UI (separate build context)
+ui
+
+# Environment files (injected at runtime via docker-compose)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode
+.idea
+*.DS_Store
+Thumbs.db
+
+# Claude
+.claude
+
+# Docs / misc
+docs
+*.md
+worklog.md

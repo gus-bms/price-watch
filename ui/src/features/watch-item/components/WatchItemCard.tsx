@@ -10,47 +10,54 @@ type WatchItemCardProps = {
   onDelete: (itemId: string) => void;
 };
 
-export function WatchItemCard({
-  item,
-  checking,
-  onCheck,
-  onEdit,
-  onDelete
-}: WatchItemCardProps) {
-  const isSoldOut = item.lastInStock === false;
+export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: WatchItemCardProps) {
+  const isOutOfStock = item.isOutOfStock === true;
+  const isBelowTarget = item.lastPrice !== undefined && item.lastPrice <= item.targetPrice && !isOutOfStock;
 
   const badgeClassName = `${styles.badge} ${
-    isSoldOut
+    item.lastError
       ? styles.badgeRed
-      : item.lastError
+      : isOutOfStock
         ? styles.badgeRed
-        : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
+        : isBelowTarget
           ? styles.badgeGreen
           : ""
   }`;
 
-  const badgeText = isSoldOut
-    ? "Sold Out"
-    : item.lastError
-      ? "Error"
-      : item.lastPrice !== undefined && item.lastPrice <= item.targetPrice
-        ? "Below target"
-        : "Watching";
+  const badgeText = item.lastError
+    ? "오류"
+    : isOutOfStock
+      ? "재입고 대기중"
+      : isBelowTarget
+        ? "목표가 도달!"
+        : "가격 추적중";
+
+  // 사이즈별 재고 요약
+  const sizeStockSummary = item.sizeStockJson
+    ? Object.entries(item.sizeStockJson)
+        .map(([s, inStock]) => `${s}:${inStock ? "O" : "X"}`)
+        .join(" ")
+    : null;
+
+  const cardClassName = `${styles.card} ${item.lastError ? styles.cardError : isOutOfStock ? styles.cardSoldOut : ""}`;
 
   return (
-    <article className={`${styles.card} ${isSoldOut || item.lastError ? styles.cardError : ""}`}>
+    <article className={cardClassName}>
       <div className={styles.cardTop}>
-        <h3 className={styles.cardName}>{item.name}</h3>
+        <div>
+          <h3 className={styles.cardName}>{item.name}</h3>
+          {item.size && (
+            <span className={styles.sizeTag}>사이즈: {item.size}</span>
+          )}
+        </div>
         <span className={badgeClassName}>{badgeText}</span>
       </div>
 
-      <div className={`${styles.prices} ${isSoldOut ? styles.pricesDimmed : ""}`}>
+      <div className={styles.prices}>
         <div className={styles.priceCol}>
           <span className={styles.priceLabel}>Current</span>
           <span className={styles.priceCurrent}>
-            {isSoldOut || item.lastPrice === undefined
-              ? "--"
-              : formatMoney(item.lastPrice, item.currency)}
+            {item.lastPrice !== undefined ? formatMoney(item.lastPrice, item.currency) : "--"}
           </span>
         </div>
         <div className={styles.priceDivider} />
@@ -60,44 +67,37 @@ export function WatchItemCard({
         </div>
       </div>
 
-      <div className={styles.cardBody}>
-        {isSoldOut && (
-          <p className={styles.matchNoteWarn}>
-            재고 없음 — 재입고 시 알림을 보냅니다
-          </p>
-        )}
+      {sizeStockSummary && (
+        <p className={styles.sizeStockRow}>
+          <span className={styles.sizeStockLabel}>재고</span>
+          <span className={styles.sizeStockValue}>{sizeStockSummary}</span>
+        </p>
+      )}
 
-        {!isSoldOut && item.lastError && (
-          <p className={styles.errorMsg}>{item.lastError}</p>
-        )}
+      {item.lastError && <p className={styles.errorMsg}>{item.lastError}</p>}
 
-        {!isSoldOut && item.matchConfidence === "low" && (
-          <p className={styles.matchNoteWarn}>
-            Fallback pattern matched{item.fallbackVerified ? " (rechecked)" : ""}
-          </p>
-        )}
-
-        {!isSoldOut && item.matchConfidence === "medium" && (
-          <p className={styles.matchNoteInfo}>Secondary pattern matched</p>
-        )}
-
-        <div className={styles.cardMeta}>
-          <span>{item.lastCheckedAt ? `Checked ${formatTime(item.lastCheckedAt)}` : "Not checked yet"}</span>
-          <span className={styles.parserHint}>
-            {item.lastMatchedPattern
-              ? `Matched: /${item.lastMatchedPattern}/`
-              : `${item.parser.patterns.length} pattern(s)`}
-            {item.stockPatterns.length > 0 && ` · ${item.stockPatterns.length} stock pattern(s)`}
-          </span>
-        </div>
+      <div className={styles.cardMeta}>
+        <span>{item.lastCheckedAt ? `Checked ${formatTime(item.lastCheckedAt)}` : "Not checked yet"}</span>
+        <span className={styles.parserHint}>
+          {item.lastMatchedPattern
+            ? `Matched: /${item.lastMatchedPattern}/`
+            : `${item.parser.patterns.length} pattern(s)`}
+        </span>
       </div>
+
+      {item.matchConfidence === "low" && (
+        <p className={styles.matchNoteWarn}>
+          Fallback pattern matched{item.fallbackVerified ? " (rechecked)" : ""}
+        </p>
+      )}
+      {item.matchConfidence === "medium" && (
+        <p className={styles.matchNoteInfo}>Secondary pattern matched</p>
+      )}
 
       <div className={styles.cardActions}>
         <button
           className={styles.checkBtn}
-          onClick={() => {
-            onCheck(item.id);
-          }}
+          onClick={() => { onCheck(item.id); }}
           disabled={checking}
           type="button"
         >
@@ -108,25 +108,17 @@ export function WatchItemCard({
           Visit
         </a>
 
-        <button
-          className={styles.editBtn}
-          onClick={() => {
-            onEdit(item.id);
-          }}
-          type="button"
-        >
+        <button className={styles.editBtn} onClick={() => { onEdit(item.id); }} type="button">
           Edit
         </button>
 
         <button
           className={styles.deleteBtn}
-          onClick={() => {
-            onDelete(item.id);
-          }}
+          onClick={() => { onDelete(item.id); }}
           type="button"
           aria-label="Delete item"
         >
-          ×
+          x
         </button>
       </div>
     </article>

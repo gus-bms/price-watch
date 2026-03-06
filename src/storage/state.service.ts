@@ -16,7 +16,8 @@ type StateRow = RowDataPacket & {
   last_checked_at: Date | string | null;
   last_notified_at: Date | string | null;
   last_notified_price: number | string | null;
-  last_in_stock: boolean | number | null;
+  is_out_of_stock: number | boolean | null;
+  size_stock_json: string | null;
 };
 
 type CheckRunInput = {
@@ -35,11 +36,10 @@ type CheckRunInput = {
 
 type NotificationInput = {
   watchId: string;
-  notificationType?: "price_alert" | "restock" | undefined;
   price: number;
   targetPriceSnapshot: number;
   currency?: string | undefined;
-  channel?: "console" | "slack" | "email" | "webhook" | undefined;
+  channel?: "console" | undefined;
   status?: "sent" | "failed" | "skipped" | undefined;
   message?: string | undefined;
   errorMessage?: string | undefined;
@@ -64,7 +64,8 @@ export class StateService {
         last_checked_at,
         last_notified_at,
         last_notified_price,
-        last_in_stock
+        is_out_of_stock,
+        size_stock_json
        FROM watch_state
        WHERE watch_id IN (${placeholders})`,
       itemIds
@@ -73,6 +74,15 @@ export class StateService {
     const items: RunnerState["items"] = {};
 
     for (const row of rows) {
+      let sizeStockJson: Record<string, boolean> | undefined;
+      if (row.size_stock_json) {
+        try {
+          sizeStockJson = JSON.parse(row.size_stock_json) as Record<string, boolean>;
+        } catch {
+          sizeStockJson = undefined;
+        }
+      }
+
       items[row.watch_id] = {
         failures: Number(row.failures || 0),
         lastError: row.last_error ?? undefined,
@@ -80,7 +90,8 @@ export class StateService {
         lastCheckedAt: toNullableMillis(row.last_checked_at),
         lastNotifiedAt: toNullableMillis(row.last_notified_at),
         lastNotifiedPrice: toNullableNumber(row.last_notified_price),
-        lastInStock: toNullableBoolean(row.last_in_stock)
+        isOutOfStock: row.is_out_of_stock === null ? undefined : Boolean(row.is_out_of_stock),
+        sizeStockJson
       };
     }
 
@@ -88,6 +99,10 @@ export class StateService {
   }
 
   async saveItemState(watchId: string, state: ItemState): Promise<void> {
+    const sizeStockJsonStr = state.sizeStockJson
+      ? JSON.stringify(state.sizeStockJson)
+      : null;
+
     await this.database.execute(
       `INSERT INTO watch_state (
         watch_id,
@@ -97,9 +112,10 @@ export class StateService {
         last_checked_at,
         last_notified_at,
         last_notified_price,
-        last_in_stock,
+        is_out_of_stock,
+        size_stock_json,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3))
       ON DUPLICATE KEY UPDATE
         failures = VALUES(failures),
         last_error = VALUES(last_error),
@@ -107,7 +123,8 @@ export class StateService {
         last_checked_at = VALUES(last_checked_at),
         last_notified_at = VALUES(last_notified_at),
         last_notified_price = VALUES(last_notified_price),
-        last_in_stock = VALUES(last_in_stock),
+        is_out_of_stock = VALUES(is_out_of_stock),
+        size_stock_json = VALUES(size_stock_json),
         updated_at = NOW(3)`,
       [
         watchId,
@@ -117,7 +134,8 @@ export class StateService {
         toDate(state.lastCheckedAt),
         toDate(state.lastNotifiedAt),
         state.lastNotifiedPrice ?? null,
-        state.lastInStock ?? null
+        state.isOutOfStock ?? null,
+        sizeStockJsonStr
       ]
     );
   }
@@ -159,7 +177,6 @@ export class StateService {
     await this.database.execute(
       `INSERT INTO watch_notification (
         watch_id,
-        notification_type,
         price,
         target_price_snapshot,
         currency,
@@ -167,10 +184,9 @@ export class StateService {
         status,
         message,
         error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.watchId,
-        input.notificationType ?? "price_alert",
         input.price,
         input.targetPriceSnapshot,
         input.currency ?? null,
@@ -220,14 +236,6 @@ function toNullableMillis(value: Date | string | null): number | undefined {
   }
 
   return timestamp;
-}
-
-function toNullableBoolean(value: boolean | number | null): boolean | undefined {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-
-  return Boolean(value);
 }
 
 function toDate(timestamp: number | undefined): Date | null {

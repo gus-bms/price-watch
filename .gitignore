@@ -37,6 +37,9 @@ yarn-error.log*
 .pnpm-debug.log*
 pnpm-debug.log*
 
+# docker
+docker-data/
+
 # misc
 .DS_Store
 .idea/

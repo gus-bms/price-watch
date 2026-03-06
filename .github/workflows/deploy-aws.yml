@@ -1,0 +1,109 @@
+name: Deploy AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-aws-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Redeploy to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          KAKAO_CLIENT_ID: ${{ secrets.KAKAO_CLIENT_ID }}
+        run: |
+          for name in EC2_HOST EC2_USER EC2_SSH_KEY KAKAO_CLIENT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: price-watch-backend:aws-main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile
+          load: true
+          tags: price-watch-frontend:aws-main
+          build-args: |
+            VITE_API_BASE_URL=
+            VITE_KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bundle deployment artifacts
+        run: |
+          set -euo pipefail
+          bundle_dir="$RUNNER_TEMP/price-watch-aws"
+          mkdir -p "$bundle_dir"
+
+          docker save price-watch-backend:aws-main | gzip -1 > "$bundle_dir/price-watch-backend-aws-main.tar.gz"
+          docker save price-watch-frontend:aws-main | gzip -1 > "$bundle_dir/price-watch-frontend-aws-main.tar.gz"
+
+          cp deploy/aws/docker-compose.yml "$bundle_dir/docker-compose.yml"
+          cp deploy/aws/redeploy.sh "$bundle_dir/redeploy.sh"
+          cp db/schema.mysql.sql "$bundle_dir/schema.mysql.sql"
+          cp db/migrations/001-add-user-auth.sql "$bundle_dir/001-add-user-auth.sql"
+          chmod +x "$bundle_dir/redeploy.sh"
+
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment bundle
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" 'mkdir -p ~/price-watch-deploy'
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/price-watch-aws/"* "$EC2_USER@$EC2_HOST:~/price-watch-deploy/"
+
+      - name: Redeploy on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
+            chmod +x ~/price-watch-deploy/redeploy.sh
+            ~/price-watch-deploy/redeploy.sh
+          '

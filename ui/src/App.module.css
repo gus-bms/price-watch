@@ -125,6 +125,17 @@
   border-color: rgba(255, 107, 107, 0.4);
 }
 
+.cardSoldOut {
+  opacity: 0.65;
+  background: rgba(255, 255, 255, 0.02);
+  border-style: dashed;
+}
+
+.cardSoldOut .priceCurrent,
+.cardSoldOut .priceTarget {
+  color: var(--ink-muted);
+}
+
 .cardTop {
   display: flex;
   justify-content: space-between;
@@ -456,4 +467,263 @@
   .grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── User Info ───────────────────────────────────────────────────────────── */
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.userName {
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.logoutBtn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.logoutBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Header Actions ──────────────────────────────────────────────────────── */
+.headerActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.llmKeysBtn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.llmKeysBtn:hover {
+  background: var(--surface2);
+}
+
+/* ── URL Row (input + LLM analyze button) ───────────────────────────────── */
+.urlRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.urlRow .input {
+  flex: 1;
+}
+
+.llmAnalyzeBtn {
+  white-space: nowrap;
+  border: none;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.llmAnalyzeBtn:hover {
+  background: #4f46e5;
+}
+
+/* ── LLM Result Banner ───────────────────────────────────────────────────── */
+.llmResultBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-size: 0.82rem;
+  color: #6366f1;
+  flex-wrap: wrap;
+}
+
+.llmResultDetail {
+  flex: 1;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+/* ── Field Row (side-by-side fields) ────────────────────────────────────── */
+.fieldRow {
+  display: flex;
+  gap: 12px;
+}
+
+.fieldFlex {
+  flex: 1;
+}
+
+/* ── Size Tag on WatchItemCard ───────────────────────────────────────────── */
+.sizeTag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  background: var(--surface2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ── Size Stock Row ─────────────────────────────────────────────────────── */
+.sizeStockRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.sizeStockLabel {
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.sizeStockValue {
+  font-family: monospace;
+  color: var(--ink);
+}
+
+/* ── LLM Analysis Overlay ───────────────────────────────────────────────── */
+.llmOverlayModal {
+  max-width: 420px;
+  width: 100%;
+}
+
+.llmOverlayHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px 12px;
+}
+
+.llmOverlayTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.llmOverlayError {
+  margin: 0 24px 16px;
+  color: #ef4444;
+  font-size: 0.85rem;
+}
+
+.llmOverlaySuccess {
+  margin: 0 24px 16px;
+  color: #22c55e;
+  font-size: 0.85rem;
+}
+
+.llmStepList {
+  list-style: none;
+  margin: 0;
+  padding: 0 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llmStep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+  transition: color 0.2s;
+}
+
+.llmStepActive {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.llmStepDone {
+  color: #22c55e;
+}
+
+.llmStepError {
+  color: #ef4444;
+}
+
+.llmStepIcon {
+  width: 18px;
+  text-align: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.llmStepMessage {
+  flex: 1;
+}
+
+/* ── LLM Key List ────────────────────────────────────────────────────────── */
+.llmKeyList {
+  padding: 0 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.llmKeyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  gap: 12px;
+}
+
+.llmKeyInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.llmKeyLabel {
+  font-size: 0.875rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llmKeyActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }

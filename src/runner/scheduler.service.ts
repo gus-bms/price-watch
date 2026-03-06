@@ -1,10 +1,7 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
-import { ConfigService } from "../config/config.service";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
-import { SlackNotifierService } from "../notifiers/slack-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
-import { StockParserService } from "../parsers/stock-parser.service";
 import { StateService } from "../storage/state.service";
 import {
   type CheckTriggerSource,
@@ -14,30 +11,19 @@ import {
   type WatchItem
 } from "./types";
 
-/** DB에서 아이템 목록을 다시 로드하는 주기 (ms) */
-const CONFIG_RELOAD_INTERVAL_MS = 60_000;
-
 @Injectable()
 export class SchedulerService implements OnModuleDestroy {
   private readonly timers = new Set<NodeJS.Timeout>();
-  /** 현재 스케줄링 중인 아이템 ID 목록 */
-  private readonly trackedItemIds = new Set<string>();
 
   constructor(
     @Inject(HttpFetcherService)
     private readonly fetcher: HttpFetcherService,
     @Inject(ConsoleNotifierService)
     private readonly notifier: ConsoleNotifierService,
-    @Inject(SlackNotifierService)
-    private readonly slackNotifier: SlackNotifierService,
     @Inject(PriceParserService)
     private readonly parser: PriceParserService,
-    @Inject(StockParserService)
-    private readonly stockParser: StockParserService,
     @Inject(StateService)
-    private readonly stateService: StateService,
-    @Inject(ConfigService)
-    private readonly configService: ConfigService
+    private readonly stateService: StateService
   ) {}
 
   async runOnce(items: WatchItem[], ctx: RunnerContext): Promise<void> {
@@ -51,12 +37,8 @@ export class SchedulerService implements OnModuleDestroy {
     console.log(`[${timestamp}] Watching ${items.length} item(s).`);
 
     for (const item of items) {
-      this.trackedItemIds.add(item.id);
       this.scheduleNext(item, ctx, 0);
     }
-
-    // UI에서 추가된 새 아이템을 주기적으로 감지
-    this.startConfigReloader(ctx);
   }
 
   onModuleDestroy(): void {
@@ -64,38 +46,6 @@ export class SchedulerService implements OnModuleDestroy {
       clearTimeout(timer);
     }
     this.timers.clear();
-    this.trackedItemIds.clear();
-  }
-
-  private startConfigReloader(ctx: RunnerContext): void {
-    const timer = setInterval(() => {
-      void this.reloadNewItems(ctx);
-    }, CONFIG_RELOAD_INTERVAL_MS) as unknown as NodeJS.Timeout;
-
-    this.timers.add(timer);
-  }
-
-  private async reloadNewItems(ctx: RunnerContext): Promise<void> {
-    try {
-      const config = await this.configService.loadConfig();
-
-      for (const item of config.items) {
-        if (this.trackedItemIds.has(item.id)) continue;
-
-        // 새 아이템 발견 → 상태 로드 후 스케줄 등록
-        const newState = await this.stateService.loadState([item.id]);
-        ctx.state.items[item.id] = newState.items[item.id] ?? {};
-        this.trackedItemIds.add(item.id);
-        this.scheduleNext(item, ctx, 0);
-
-        console.log(
-          `[${new Date().toISOString()}] New item detected, scheduling: ${item.name}`
-        );
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`[${new Date().toISOString()}] Config reload error: ${msg}`);
-    }
   }
 
   private scheduleNext(
@@ -150,77 +100,85 @@ export class SchedulerService implements OnModuleDestroy {
       });
       responseContentType = contentType;
 
-      // ── 재고 확인 ──────────────────────────────────────────────
-      const stockPatterns = item.stockPatterns ?? [];
-      const inStock = this.stockParser.isInStock(body, stockPatterns);
+      const price = this.parser.parsePrice(body, item.parser);
+      parsedPrice = price;
+      itemState.lastPrice = price;
+      itemState.lastError = undefined;
 
-      const previousInStock = itemState.lastInStock;
-      itemState.lastInStock = inStock;
+      // ── 품절/재고 감지 ───────────────────────────────────────────────────
+      const prevOutOfStock = itemState.isOutOfStock;
 
-      // 재입고: 이전에 품절이었고 지금 재고 있음으로 전환된 경우 알림
-      if (inStock === true && previousInStock === false) {
-        this.notifier.notifyRestock({ item, url: item.url });
-        void this.slackNotifier.notifyRestock({ item, url: item.url });
+      if (item.stockParser) {
+        itemState.isOutOfStock = this.parser.parseOutOfStock(body, {
+          outOfStockPattern: item.stockParser.pattern,
+          flags: item.stockParser.flags
+        });
+      }
+
+      if (item.sizeStockParsers && item.sizeStockParsers.length > 0) {
+        const sizeResults = this.parser.parseSizeStock(body, item.sizeStockParsers);
+        const sizeStockJson: Record<string, boolean> = {};
+        for (const { size, inStock } of sizeResults) {
+          sizeStockJson[size] = inStock;
+        }
+        itemState.sizeStockJson = sizeStockJson;
+
+        // 등록된 사이즈가 있으면 해당 사이즈 기준으로 품절 여부 결정
+        if (item.size) {
+          const targetSizeInStock = sizeStockJson[item.size];
+          if (targetSizeInStock !== undefined) {
+            itemState.isOutOfStock = !targetSizeInStock;
+          }
+        }
+      }
+
+      // ── 알림 조건 체크 ───────────────────────────────────────────────────
+      const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
+      const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
+      const now = Date.now();
+      const canNotify = now - lastNotifiedAt >= minNotifyMs;
+
+      // 1) 가격 목표 달성 알림 (재고가 있을 때만 동작)
+      if (itemState.isOutOfStock !== true && price !== undefined && price <= item.targetPrice && canNotify) {
+        this.notifier.notify({ item, price, currency: item.currency, url: item.url });
 
         await this.stateService.recordNotification({
           watchId: item.id,
-          notificationType: "restock",
-          price: itemState.lastPrice ?? 0,
+          price,
           targetPriceSnapshot: item.targetPrice,
           currency: item.currency,
           channel: "console",
           status: "sent"
         });
+
+        itemState.lastNotifiedAt = now;
+        itemState.lastNotifiedPrice = price;
       }
 
-      // 품절 확인됨 → 가격 체크 스킵
-      if (inStock === false) {
-        itemState.lastError = undefined;
-        itemState.failures = 0;
-      } else {
-        // ── 가격 확인 ──────────────────────────────────────────────
-        const price = this.parser.parsePrice(body, item.parser);
-        parsedPrice = price;
+      // 2) 재입고 알림 (품절 → 재고있음 전환)
+      if (
+        prevOutOfStock === true &&
+        itemState.isOutOfStock === false &&
+        canNotify
+      ) {
+        const sizeLabel = item.size ? ` [사이즈: ${item.size}]` : "";
+        const message = `[재입고]${sizeLabel} ${item.name} - ${price} ${item.currency ?? ""} | ${item.url}`;
+        console.log(`[${new Date().toISOString()}] ${message}`);
 
-        itemState.lastPrice = price;
-        itemState.lastError = undefined;
+        await this.stateService.recordNotification({
+          watchId: item.id,
+          price,
+          targetPriceSnapshot: item.targetPrice,
+          currency: item.currency,
+          channel: "console",
+          status: "sent",
+          message
+        });
 
-        const minNotifyMs = ctx.global.minNotifyIntervalMinutes * 60_000;
-        const lastNotifiedAt = Number(itemState.lastNotifiedAt ?? 0);
-        const now = Date.now();
-        const canNotify = now - lastNotifiedAt >= minNotifyMs;
-
-        if (price <= item.targetPrice && canNotify) {
-          this.notifier.notify({
-            item,
-            price,
-            currency: item.currency,
-            url: item.url
-          });
-
-          void this.slackNotifier.notify({
-            item,
-            price,
-            currency: item.currency,
-            url: item.url
-          });
-
-          await this.stateService.recordNotification({
-            watchId: item.id,
-            notificationType: "price_alert",
-            price,
-            targetPriceSnapshot: item.targetPrice,
-            currency: item.currency,
-            channel: "console",
-            status: "sent"
-          });
-
-          itemState.lastNotifiedAt = now;
-          itemState.lastNotifiedPrice = price;
-        }
-
-        itemState.failures = 0;
+        itemState.lastNotifiedAt = now;
       }
+
+      itemState.failures = 0;
     } catch (error) {
       itemState.failures = Number(itemState.failures ?? 0) + 1;
       errorMessage = error instanceof Error ? error.message : String(error);
