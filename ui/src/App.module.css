@@ -428,6 +428,38 @@
   }
 }
 
+/* ── User Info ───────────────────────────────────────────────────────────── */
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.userName {
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.logoutBtn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.logoutBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 /* ── Header Actions ──────────────────────────────────────────────────────── */
 .headerActions {
   display: flex;

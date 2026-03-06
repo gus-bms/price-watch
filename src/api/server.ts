@@ -8,6 +8,8 @@ import { LlmKeyService } from "../llm/llm-key.service";
 import { ParserGeneratorService } from "../llm/parser-generator.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { type ParserConfig } from "../runner/types";
+import { AuthService } from "../auth/auth.service";
+import { extractUser } from "../auth/auth.middleware";
 import { WatchItemsService } from "./watch-items.service";
 
 type JsonValue =
@@ -21,6 +23,7 @@ type JsonValue =
 
 export async function startApiServer(): Promise<{ close: () => Promise<void> }> {
   const database = new DatabaseService();
+  const authService = new AuthService(database);
   const itemsService = new WatchItemsService(database);
   const fetcher = new HttpFetcherService();
   const parser = new PriceParserService();
@@ -47,8 +50,96 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         return;
       }
 
+      // ── Auth: Kakao OAuth login (SSE 스트리밍) ───────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/auth/kakao/stream") {
+        const code = url.searchParams.get("code");
+        const redirectUri = url.searchParams.get("redirectUri");
+
+        if (!code || !redirectUri) {
+          sendJson(response, 400, { error: "code and redirectUri are required" });
+          return;
+        }
+
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+
+        const sendStep = (data: Record<string, JsonValue>): void => {
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        try {
+          sendStep({ step: "code_check", message: "인증 코드 확인 중..." });
+
+          sendStep({ step: "token_exchange", message: "카카오 토큰 교환 중..." });
+          const tokens = await authService.exchangeKakaoCode(code, redirectUri);
+
+          sendStep({ step: "profile_fetch", message: "프로필 정보 가져오는 중..." });
+          const profile = await authService.getKakaoProfile(tokens.accessToken);
+
+          sendStep({ step: "user_sync", message: "계정 동기화 중..." });
+          const user = await authService.findOrCreateUser(
+            profile.kakaoId,
+            profile.nickname,
+            profile.profileImageUrl,
+          );
+
+          const token = authService.signJwt(user.id);
+
+          sendStep({
+            step: "done",
+            token,
+            user: {
+              id: user.id,
+              nickname: user.nickname ?? profile.nickname,
+              profileImageUrl: user.profile_image_url ?? profile.profileImageUrl,
+            },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          sendStep({ step: "error", message, error: message });
+        } finally {
+          response.end();
+        }
+
+        return;
+      }
+
+      // ── Auth: Get current user ───────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/auth/me") {
+        const authUser = extractUser(request, authService);
+        if (!authUser) {
+          sendJson(response, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const user = await authService.getUserById(authUser.userId);
+        if (!user) {
+          sendJson(response, 401, { error: "User not found" });
+          return;
+        }
+
+        sendJson(response, 200, {
+          id: user.id,
+          nickname: user.nickname,
+          profileImageUrl: user.profile_image_url,
+        });
+        return;
+      }
+
+      // ── Auth guard: all routes below require a valid JWT ─────────────────
+      const authUser = extractUser(request, authService);
+      if (!authUser) {
+        sendJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
+      const currentUserId = authUser.userId;
+
       if (request.method === "GET" && url.pathname === "/api/items") {
-        const items = await itemsService.listItems();
+        const items = await itemsService.listItems(currentUserId);
         sendJson(response, 200, items);
         return;
       }
@@ -60,6 +151,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
 
         await itemsService.createItem({
           id,
+          userId: currentUserId,
           name: normalized.name,
           url: normalized.url,
           targetPrice: normalized.targetPrice,
@@ -82,7 +174,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         const payload = await readJsonBody(request);
         const normalized = normalizeItemPayload(payload, true);
 
-        const updated = await itemsService.updateItem(id, {
+        const updated = await itemsService.updateItem(id, currentUserId, {
           name: normalized.name,
           url: normalized.url,
           targetPrice: normalized.targetPrice,
@@ -107,7 +199,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           return;
         }
 
-        const deleted = await itemsService.deleteItem(id);
+        const deleted = await itemsService.deleteItem(id, currentUserId);
         if (!deleted) {
           sendJson(response, 404, { error: "Item not found" });
           return;
@@ -126,7 +218,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           return;
         }
 
-        const item = await itemsService.getCheckableItem(itemId);
+        const item = await itemsService.getCheckableItem(itemId, currentUserId);
         if (!item) {
           sendJson(response, 404, { error: "Item not found" });
           return;
@@ -325,6 +417,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
 
         await itemsService.saveLlmParsers({
           watchId: id,
+          userId: currentUserId,
           pricePattern,
           priceFlags,
           stockPattern,
@@ -626,7 +719,7 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, Js
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 }
 

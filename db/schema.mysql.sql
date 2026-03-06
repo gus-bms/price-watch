@@ -22,8 +22,22 @@ CREATE TABLE IF NOT EXISTS watch_global_config (
   CONSTRAINT chk_global_min_notify CHECK (min_notify_interval_minutes > 0)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS `user` (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  kakao_id BIGINT NOT NULL COMMENT 'Kakao account unique ID',
+  nickname VARCHAR(100) NULL,
+  profile_image_url VARCHAR(512) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+    ON UPDATE CURRENT_TIMESTAMP(3),
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_kakao_id (kakao_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS watch_item (
   id VARCHAR(128) NOT NULL,
+  user_id BIGINT UNSIGNED NULL,
   name VARCHAR(255) NOT NULL,
   url VARCHAR(2048) NOT NULL,
   target_price DECIMAL(18,4) NOT NULL,
@@ -40,6 +54,11 @@ CREATE TABLE IF NOT EXISTS watch_item (
   CONSTRAINT chk_item_interval CHECK (interval_minutes > 0),
   CONSTRAINT chk_item_url CHECK (url REGEXP '^https?://'),
 
+  CONSTRAINT fk_item_user
+    FOREIGN KEY (user_id) REFERENCES `user`(id)
+    ON DELETE CASCADE,
+
+  KEY idx_item_user (user_id),
   KEY idx_item_enabled_interval (enabled, interval_minutes),
   KEY idx_item_url_prefix (url(255))
 ) ENGINE=InnoDB;
