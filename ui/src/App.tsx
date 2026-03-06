@@ -17,7 +17,7 @@ export default function App() {
     createItem,
     updateItem,
     deleteItem,
-    checkItem
+    checkItem,
   } = useWatchItems();
 
   const { user, logout } = useAuth();
@@ -26,23 +26,44 @@ export default function App() {
   const [showLlmKeys, setShowLlmKeys] = useState(false);
 
   const editingItem = useMemo(
-    () => editingItemId ? items.find((item) => item.id === editingItemId) ?? null : null,
-    [editingItemId, items]
+    () =>
+      editingItemId
+        ? (items.find((item) => item.id === editingItemId) ?? null)
+        : null,
+    [editingItemId, items],
   );
 
   const belowTarget = useMemo(
-    () => items.filter((item) => item.lastPrice !== undefined && item.lastPrice <= item.targetPrice && item.isOutOfStock !== true).length,
-    [items]
+    () =>
+      items.filter(
+        (item) =>
+          item.lastPrice !== undefined &&
+          item.lastPrice <= item.targetPrice &&
+          item.isOutOfStock !== true,
+      ).length,
+    [items],
   );
-  const withErrors = useMemo(() => items.filter((item) => item.lastError).length, [items]);
+  const withErrors = useMemo(
+    () => items.filter((item) => item.lastError).length,
+    [items],
+  );
   const outOfStock = useMemo(
     () => items.filter((item) => item.isOutOfStock === true).length,
-    [items]
+    [items],
   );
 
-  function openCreateModal() { setEditingItemId(null); setShowForm(true); }
-  function openEditModal(itemId: string) { setEditingItemId(itemId); setShowForm(true); }
-  function closeModal() { setShowForm(false); setEditingItemId(null); }
+  function openCreateModal() {
+    setEditingItemId(null);
+    setShowForm(true);
+  }
+  function openEditModal(itemId: string) {
+    setEditingItemId(itemId);
+    setShowForm(true);
+  }
+  function closeModal() {
+    setShowForm(false);
+    setEditingItemId(null);
+  }
 
   function handleSubmit(item: WatchItem): Promise<void> {
     return editingItemId ? updateItem(item) : createItem(item);
@@ -62,25 +83,42 @@ export default function App() {
         <header className={styles.header}>
           <div>
             <h1 className={styles.logo}>Price Watch</h1>
-            <p className={styles.tagline}>React UI + MySQL-backed API</p>
             {loadError && <p className={styles.errorMsg}>{loadError}</p>}
           </div>
           <div className={styles.headerActions}>
             {user && (
               <div className={styles.userInfo}>
                 {user.profileImageUrl && (
-                  <img src={user.profileImageUrl} alt="" className={styles.avatar} />
+                  <img
+                    src={user.profileImageUrl}
+                    alt=""
+                    className={styles.avatar}
+                  />
                 )}
                 <span className={styles.userName}>{user.nickname}</span>
-                <button className={styles.logoutBtn} onClick={logout} type="button">
+                <button
+                  className={styles.logoutBtn}
+                  onClick={logout}
+                  type="button"
+                >
                   로그아웃
                 </button>
               </div>
             )}
-            <button className={styles.llmKeysBtn} onClick={() => { setShowLlmKeys(true); }} type="button">
+            <button
+              className={styles.llmKeysBtn}
+              onClick={() => {
+                setShowLlmKeys(true);
+              }}
+              type="button"
+            >
               Gemini 키
             </button>
-            <button className={styles.addBtn} onClick={openCreateModal} type="button">
+            <button
+              className={styles.addBtn}
+              onClick={openCreateModal}
+              type="button"
+            >
               <span className={styles.addIcon}>+</span>
               Add item
             </button>
@@ -94,15 +132,25 @@ export default function App() {
               <span className={styles.statLabel}>Tracking</span>
             </div>
             <div className={styles.stat}>
-              <span className={`${styles.statValue} ${styles.statGreen}`}>{belowTarget}</span>
+              <span className={`${styles.statValue} ${styles.statGreen}`}>
+                {belowTarget}
+              </span>
               <span className={styles.statLabel}>Below target</span>
             </div>
             <div className={styles.stat}>
-              <span className={`${styles.statValue} ${outOfStock > 0 ? styles.statRed : ""}`}>{outOfStock}</span>
+              <span
+                className={`${styles.statValue} ${outOfStock > 0 ? styles.statRed : ""}`}
+              >
+                {outOfStock}
+              </span>
               <span className={styles.statLabel}>품절</span>
             </div>
             <div className={styles.stat}>
-              <span className={`${styles.statValue} ${withErrors > 0 ? styles.statRed : ""}`}>{withErrors}</span>
+              <span
+                className={`${styles.statValue} ${withErrors > 0 ? styles.statRed : ""}`}
+              >
+                {withErrors}
+              </span>
               <span className={styles.statLabel}>Errors</span>
             </div>
           </div>
@@ -111,7 +159,9 @@ export default function App() {
         {items.length === 0 ? (
           <div className={styles.empty}>
             <h2 className={styles.emptyTitle}>No items yet</h2>
-            <p className={styles.emptyText}>Add a product URL and parser pattern to start tracking.</p>
+            <p className={styles.emptyText}>
+              Add a product URL and parser pattern to start tracking.
+            </p>
           </div>
         ) : (
           <div className={styles.grid}>
@@ -120,9 +170,13 @@ export default function App() {
                 key={item.id}
                 item={item}
                 checking={checking.has(item.id)}
-                onCheck={(itemId) => { void checkItem(itemId); }}
+                onCheck={(itemId) => {
+                  void checkItem(itemId);
+                }}
                 onEdit={openEditModal}
-                onDelete={(itemId) => { void deleteItem(itemId); }}
+                onDelete={(itemId) => {
+                  void deleteItem(itemId);
+                }}
               />
             ))}
           </div>
@@ -139,7 +193,13 @@ export default function App() {
         />
       )}
 
-      {showLlmKeys && <LlmKeysModal onClose={() => { setShowLlmKeys(false); }} />}
+      {showLlmKeys && (
+        <LlmKeysModal
+          onClose={() => {
+            setShowLlmKeys(false);
+          }}
+        />
+      )}
     </div>
   );
 }
