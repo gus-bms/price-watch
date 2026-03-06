@@ -109,6 +109,7 @@
   flex-direction: column;
   gap: 14px;
   height: 300px;
+  position: relative;
 }
 
 .cardBody {
@@ -141,6 +142,7 @@
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+  padding-right: 44px;
 }
 
 .cardName {
@@ -269,6 +271,18 @@
   width: 36px;
   padding: 8px 0;
   text-align: center;
+}
+
+.cardDeleteBtn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  line-height: 1;
+  z-index: 1;
 }
 
 .spinner {

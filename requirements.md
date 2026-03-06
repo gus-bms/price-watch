@@ -82,3 +82,7 @@
 ## 2026-03-07 00:45:33 KST
 - Request: Commit the pending SSL and item-edit UI changes, then push `main` so deployment can proceed.
 - Status: done
+
+## 2026-03-07 00:55:26 KST
+- Request: Move the `X` delete button on each item card to the top-right corner.
+- Status: done
