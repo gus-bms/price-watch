@@ -129,3 +129,32 @@
   - Validated the merged tree with backend `npm run typecheck` and frontend `npm run build`.
 - Files touched: `requirements.md`, `worklog.md`, `.env.example`, `db/schema.mysql.sql`, `src/api/server.ts`, `src/api/watch-items.service.ts`, `src/config/config.service.ts`, `src/runner/scheduler.service.ts`, `src/runner/types.ts`, `src/storage/state.service.ts`, `ui/src/features/watch-item/components/AddItemModal.tsx`, `ui/src/features/watch-item/components/WatchItemCard.tsx`, `ui/src/features/watch-item/hooks/use-watch-items.ts`, `ui/src/features/watch-item/model/serializers.ts`, `ui/src/features/watch-item/model/types.ts`
 - Result: completed
+
+## 2026-03-07 00:22:39 KST
+- Task: Add Let's Encrypt + Certbot HTTPS for `price-watch.duckdns.org` on the AWS EC2 deployment.
+- Changes:
+  - Updated frontend nginx/container config for `80 -> 443` redirect, TLS termination, `443` port exposure, and mounted certificate paths.
+  - Issued a Let's Encrypt certificate on EC2 for `price-watch.duckdns.org` and mounted `/etc/letsencrypt` into `pw-frontend`.
+  - Hit an ARM/AMD64 mismatch after the first local frontend rebuild, then rebuilt the frontend image explicitly for `linux/amd64` and redeployed successfully.
+  - Enabled `certbot-renew.timer`, added renewal hooks to stop/start `pw-frontend`, and validated renewal with `certbot renew --dry-run --no-random-sleep-on-renew`.
+  - Verified `http://price-watch.duckdns.org` redirects to HTTPS and `https://price-watch.duckdns.org/api/health` returns `{\"ok\":true}`.
+- Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/Dockerfile`, `ui/nginx.conf`, remote `/etc/letsencrypt/*`, remote `/home/ec2-user/price-watch-deploy/*`
+- Result: completed
+
+## 2026-03-07 00:39:54 KST
+- Task: Improve the item edit modal so the product name can be edited directly and the close button sits at the top-right.
+- Changes:
+  - Added a product-name input to the edit-mode step-3 form so item updates can change the displayed name without restarting the create flow.
+  - Updated the modal close button label from `x` to `×` and moved modal close positioning to the actual top-right corner via shared modal styles.
+  - Validated the UI build with `npm run build` in `ui/`.
+- Files touched: `requirements.md`, `worklog.md`, `ui/src/features/watch-item/components/AddItemModal.tsx`, `ui/src/App.module.css`
+- Result: completed
+
+## 2026-03-07 00:46:09 KST
+- Task: Commit the pending SSL and item-edit UI updates and push `main`.
+- Changes:
+  - Bundled the AWS HTTPS deployment updates and item edit modal improvements into the current `main` worktree.
+  - Kept the local `.claude/` workspace artifacts out of git.
+  - Reused the already validated frontend build as the final pre-push check.
+- Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/Dockerfile`, `ui/nginx.conf`, `ui/src/App.module.css`, `ui/src/features/watch-item/components/AddItemModal.tsx`
+- Result: completed

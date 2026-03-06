@@ -160,7 +160,9 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose, onAfterSave
           <h2 className={styles.modalTitle}>
             {mode === "edit" ? "추적 아이템 수정" : `아이템 등록 (${step}/3)`}
           </h2>
-          <button className={styles.modalClose} type="button" onClick={onClose}>x</button>
+          <button className={styles.modalClose} type="button" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
         </div>
 
         {step === 1 && (
@@ -197,6 +199,18 @@ export function AddItemModal({ mode, initialItem, onSubmit, onClose, onAfterSave
 
         {step === 3 && (
           <form className={styles.form} onSubmit={handleSubmitStep3}>
+            {mode === "edit" && (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>상품명</span>
+                <input
+                  className={styles.input}
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); }}
+                  placeholder="상품명을 입력하세요"
+                  autoFocus
+                />
+              </label>
+            )}
             {mode === "edit" && !llmResult && (
               <div style={{ marginBottom: "1rem", padding: "0.875rem 1rem", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
                 <p style={{ margin: 0, color: "#713f12", fontSize: "0.85rem", lineHeight: 1.4 }}>
