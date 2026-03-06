@@ -3,9 +3,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { URL } from "node:url";
 import { DatabaseService } from "../database/database.service";
 import { HttpFetcherService } from "../fetchers/http-fetcher.service";
+import { GeminiService } from "../llm/gemini.service";
+import { LlmKeyService } from "../llm/llm-key.service";
+import { ParserGeneratorService } from "../llm/parser-generator.service";
 import { PriceParserService } from "../parsers/price-parser.service";
-import { StockParserService } from "../parsers/stock-parser.service";
 import { type ParserConfig } from "../runner/types";
+import { AuthService } from "../auth/auth.service";
+import { extractUser } from "../auth/auth.middleware";
 import { WatchItemsService } from "./watch-items.service";
 
 type JsonValue =
@@ -19,10 +23,13 @@ type JsonValue =
 
 export async function startApiServer(): Promise<{ close: () => Promise<void> }> {
   const database = new DatabaseService();
+  const authService = new AuthService(database);
   const itemsService = new WatchItemsService(database);
   const fetcher = new HttpFetcherService();
   const parser = new PriceParserService();
-  const stockParser = new StockParserService();
+  const llmKeyService = new LlmKeyService(database);
+  const geminiService = new GeminiService(llmKeyService);
+  const parserGenerator = new ParserGeneratorService(geminiService, fetcher, parser);
 
   const port = toPort(process.env.APP_PORT, 4000);
   const host = process.env.APP_HOST ?? "0.0.0.0";
@@ -43,8 +50,96 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         return;
       }
 
+      // ── Auth: Kakao OAuth login (SSE 스트리밍) ───────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/auth/kakao/stream") {
+        const code = url.searchParams.get("code");
+        const redirectUri = url.searchParams.get("redirectUri");
+
+        if (!code || !redirectUri) {
+          sendJson(response, 400, { error: "code and redirectUri are required" });
+          return;
+        }
+
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+
+        const sendStep = (data: Record<string, JsonValue>): void => {
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        try {
+          sendStep({ step: "code_check", message: "인증 코드 확인 중..." });
+
+          sendStep({ step: "token_exchange", message: "카카오 토큰 교환 중..." });
+          const tokens = await authService.exchangeKakaoCode(code, redirectUri);
+
+          sendStep({ step: "profile_fetch", message: "프로필 정보 가져오는 중..." });
+          const profile = await authService.getKakaoProfile(tokens.accessToken);
+
+          sendStep({ step: "user_sync", message: "계정 동기화 중..." });
+          const user = await authService.findOrCreateUser(
+            profile.kakaoId,
+            profile.nickname,
+            profile.profileImageUrl,
+          );
+
+          const token = authService.signJwt(user.id);
+
+          sendStep({
+            step: "done",
+            token,
+            user: {
+              id: user.id,
+              nickname: user.nickname ?? profile.nickname,
+              profileImageUrl: user.profile_image_url ?? profile.profileImageUrl,
+            },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          sendStep({ step: "error", message, error: message });
+        } finally {
+          response.end();
+        }
+
+        return;
+      }
+
+      // ── Auth: Get current user ───────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/auth/me") {
+        const authUser = extractUser(request, authService);
+        if (!authUser) {
+          sendJson(response, 401, { error: "Unauthorized" });
+          return;
+        }
+
+        const user = await authService.getUserById(authUser.userId);
+        if (!user) {
+          sendJson(response, 401, { error: "User not found" });
+          return;
+        }
+
+        sendJson(response, 200, {
+          id: user.id,
+          nickname: user.nickname,
+          profileImageUrl: user.profile_image_url,
+        });
+        return;
+      }
+
+      // ── Auth guard: all routes below require a valid JWT ─────────────────
+      const authUser = extractUser(request, authService);
+      if (!authUser) {
+        sendJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
+      const currentUserId = authUser.userId;
+
       if (request.method === "GET" && url.pathname === "/api/items") {
-        const items = await itemsService.listItems();
+        const items = await itemsService.listItems(currentUserId);
         sendJson(response, 200, items);
         return;
       }
@@ -56,12 +151,13 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
 
         await itemsService.createItem({
           id,
+          userId: currentUserId,
           name: normalized.name,
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
-          patterns: normalized.patterns,
-          stockPatterns: normalized.stockPatterns
+          size: normalized.size,
+          patterns: normalized.patterns
         });
 
         sendJson(response, 201, { id });
@@ -78,13 +174,13 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         const payload = await readJsonBody(request);
         const normalized = normalizeItemPayload(payload, true);
 
-        const updated = await itemsService.updateItem(id, {
+        const updated = await itemsService.updateItem(id, currentUserId, {
           name: normalized.name,
           url: normalized.url,
           targetPrice: normalized.targetPrice,
           currency: normalized.currency,
-          patterns: normalized.patterns,
-          stockPatterns: normalized.stockPatterns
+          size: normalized.size,
+          patterns: normalized.patterns
         });
 
         if (!updated) {
@@ -103,7 +199,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           return;
         }
 
-        const deleted = await itemsService.deleteItem(id);
+        const deleted = await itemsService.deleteItem(id, currentUserId);
         if (!deleted) {
           sendJson(response, 404, { error: "Item not found" });
           return;
@@ -122,7 +218,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           return;
         }
 
-        const item = await itemsService.getCheckableItem(itemId);
+        const item = await itemsService.getCheckableItem(itemId, currentUserId);
         if (!item) {
           sendJson(response, 404, { error: "Item not found" });
           return;
@@ -141,28 +237,11 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           const body = fetched.body;
           contentType = fetched.contentType;
 
-          // ── 재고 확인 ────────────────────────────────────────
-          if (item.stockPatterns.length > 0) {
-            const inStock = stockParser.isInStock(body, item.stockPatterns);
+          const priceParsers = item.parsers.filter(p => !p.kind || p.kind === "price");
+          const stockParser = item.parsers.find(p => p.kind === "stock" && p.pattern);
+          const sizeStockParsers = item.parsers.filter(p => p.kind === "size_stock" && p.pattern && p.targetSize);
 
-            if (inStock === false) {
-              const finishedAt = Date.now();
-
-              await itemsService.recordSoldOutCheck({
-                itemId: item.id,
-                startedAt,
-                finishedAt,
-                responseContentType: contentType,
-                triggerSource: "api_check"
-              });
-
-              sendJson(response, 200, { soldOut: true, inStock: false });
-              return;
-            }
-          }
-
-          // ── 가격 확인 ────────────────────────────────────────
-          for (const [index, parserCandidate] of item.parsers.entries()) {
+          for (const [index, parserCandidate] of priceParsers.entries()) {
             try {
               const parsedPrice = parser.parsePrice(
                 body,
@@ -198,6 +277,31 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
                 verifiedByRecheck = true;
               }
 
+              let isOutOfStock: boolean | undefined = undefined;
+
+              if (stockParser && stockParser.pattern) {
+                isOutOfStock = parser.parseOutOfStock(body, {
+                  outOfStockPattern: stockParser.pattern,
+                  flags: stockParser.flags || "i"
+                });
+              }
+
+              if (sizeStockParsers.length > 0) {
+                const sspConfigs = sizeStockParsers.map(p => ({
+                   size: p.targetSize!,
+                   pattern: p.pattern!,
+                   flags: p.flags || "i"
+                }));
+                const sizeResults = parser.parseSizeStock(body, sspConfigs);
+                
+                if (item.size) {
+                   const targetSizeResult = sizeResults.find(r => r.size.toUpperCase() === item.size!.toUpperCase());
+                   if (targetSizeResult) {
+                      isOutOfStock = !targetSizeResult.inStock;
+                   }
+                }
+              }
+
               const finishedAt = Date.now();
 
               await itemsService.recordCheckSuccess({
@@ -205,6 +309,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
                 startedAt,
                 finishedAt,
                 price: parsedPrice,
+                isOutOfStock,
                 confidence,
                 verifiedByRecheck,
                 matchedParserId: parserCandidate.id,
@@ -213,9 +318,8 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
               });
 
               sendJson(response, 200, {
-                soldOut: false,
-                inStock: item.stockPatterns.length > 0 ? true : null,
                 price: parsedPrice,
+                isOutOfStock,
                 matchedParser: {
                   type: parserCandidate.type,
                   pattern: parserCandidate.pattern,
@@ -250,6 +354,137 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           sendJson(response, 500, { error: message });
           return;
         }
+      }
+
+      // ── LLM 파서 분석 (SSE 스트림) ─────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/items/analyze-stream") {
+        const targetUrl = url.searchParams.get("url");
+        const targetSize = url.searchParams.get("size") || undefined;
+        if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+          sendJson(response, 400, { error: "url query param is required (https://...)" });
+          return;
+        }
+
+        // SSE 헤더
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*"
+        });
+
+        const sendEvent = (data: Record<string, unknown>): void => {
+          response.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        try {
+          await parserGenerator.generate(targetUrl, targetSize, (progress) => {
+            sendEvent(progress);
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          sendEvent({ step: "error", message, error: message });
+        } finally {
+          response.end();
+        }
+
+        return;
+      }
+
+      // ── LLM 파서 저장 (아이템에 LLM 생성 파서 적용) ──────────────────────
+      if (request.method === "POST" && url.pathname.startsWith("/api/items/") && url.pathname.endsWith("/parsers/llm")) {
+        const id = decodeURIComponent(
+          url.pathname.replace("/api/items/", "").replace("/parsers/llm", "")
+        );
+        if (!id) {
+          sendJson(response, 400, { error: "Item id is required" });
+          return;
+        }
+
+        const payload = await readJsonBody(request);
+        const pricePattern = requireString(payload.pricePattern, "pricePattern");
+        const priceFlags = typeof payload.priceFlags === "string" ? payload.priceFlags : "gi";
+        const stockPattern = typeof payload.stockPattern === "string" ? payload.stockPattern : null;
+        const stockFlags = typeof payload.stockFlags === "string" ? payload.stockFlags : "i";
+        const sizeStockPatterns = Array.isArray(payload.sizeStockPatterns)
+          ? (payload.sizeStockPatterns as Array<{ size: string; pattern: string; flags: string }>)
+          : [];
+          
+        let initialIsOutOfStock: boolean | undefined = undefined;
+        if (isRecord(payload.testRun) && typeof payload.testRun.isOutOfStock === "boolean") {
+            initialIsOutOfStock = payload.testRun.isOutOfStock;
+        }
+
+        await itemsService.saveLlmParsers({
+          watchId: id,
+          userId: currentUserId,
+          pricePattern,
+          priceFlags,
+          stockPattern,
+          stockFlags,
+          sizeStockPatterns,
+          initialIsOutOfStock
+        });
+
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      // ── LLM API 키 관리 ─────────────────────────────────────────────────────
+      if (request.method === "GET" && url.pathname === "/api/llm-keys") {
+        const keys = await itemsService.listLlmApiKeys();
+        sendJson(response, 200, keys);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/llm-keys") {
+        const payload = await readJsonBody(request);
+        const label = requireString(payload.label, "label");
+        const apiKey = requireString(payload.apiKey, "apiKey");
+        const provider = "gemini" as const;
+
+        const id = await itemsService.createLlmApiKey({ provider, label, apiKey });
+        sendJson(response, 201, { id });
+        return;
+      }
+
+      if (request.method === "DELETE" && url.pathname.startsWith("/api/llm-keys/")) {
+        const idStr = url.pathname.replace("/api/llm-keys/", "");
+        const id = Number(idStr);
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJson(response, 400, { error: "Invalid id" });
+          return;
+        }
+
+        const deleted = await itemsService.deleteLlmApiKey(id);
+        if (!deleted) {
+          sendJson(response, 404, { error: "Key not found" });
+          return;
+        }
+
+        response.writeHead(204).end();
+        return;
+      }
+
+      if (request.method === "PATCH" && url.pathname.startsWith("/api/llm-keys/")) {
+        const idStr = url.pathname.replace("/api/llm-keys/", "");
+        const id = Number(idStr);
+        if (!Number.isInteger(id) || id <= 0) {
+          sendJson(response, 400, { error: "Invalid id" });
+          return;
+        }
+
+        const payload = await readJsonBody(request);
+        const enabled = Boolean(payload.isEnabled);
+        const updated = await itemsService.toggleLlmApiKey(id, enabled);
+
+        if (!updated) {
+          sendJson(response, 404, { error: "Key not found" });
+          return;
+        }
+
+        sendJson(response, 200, { ok: true });
+        return;
       }
 
       sendJson(response, 404, { error: "Not found" });
@@ -303,8 +538,8 @@ type NormalizedItemPayload = {
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string | undefined;
   patterns: string[];
-  stockPatterns: string[];
 };
 
 function normalizeItemPayload(
@@ -316,6 +551,7 @@ function normalizeItemPayload(
   const name = requireString(payload.name, "name");
   const url = requireString(payload.url, "url");
   const currency = requireString(payload.currency, "currency");
+  const size = normalizeOptionalString(payload.size);
   const targetPrice = Number(payload.targetPrice);
 
   if (!/^https?:\/\//i.test(url)) {
@@ -344,20 +580,13 @@ function normalizeItemPayload(
     throw new BadRequestError("At least one regex pattern is required");
   }
 
-  const stockPatternsValue = payload.stockPatterns;
-  const stockPatterns = Array.isArray(stockPatternsValue)
-    ? stockPatternsValue
-        .map((p) => (typeof p === "string" ? p.trim() : ""))
-        .filter((p) => p.length > 0)
-    : [];
-
   return {
     name,
     url,
     targetPrice,
     currency,
-    patterns,
-    stockPatterns
+    size,
+    patterns
   };
 }
 
@@ -490,8 +719,8 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, Js
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 }
 
 function sendJson(

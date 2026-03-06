@@ -1,4 +1,4 @@
-import { type CheckSuccess, type MatchConfidence, type WatchItem } from "./types";
+import { type CheckSuccess, type LlmApiKey, type MatchConfidence, type WatchItem } from "./types";
 
 type WatchItemPayload = {
   id: string;
@@ -6,11 +6,11 @@ type WatchItemPayload = {
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string;
   parser: {
     type: "regex";
     patterns: string[];
   };
-  stockPatterns: string[];
 };
 
 export function normalizeItems(value: unknown): WatchItem[] {
@@ -41,11 +41,10 @@ export function normalizeItems(value: unknown): WatchItem[] {
       .map((pattern) => (typeof pattern === "string" ? pattern.trim() : ""))
       .filter((pattern) => pattern.length > 0);
 
-    const stockPatterns = Array.isArray(item.stockPatterns)
-      ? (item.stockPatterns as unknown[])
-          .map((p) => (typeof p === "string" ? p.trim() : ""))
-          .filter((p) => p.length > 0)
-      : [];
+    let sizeStockJson: Record<string, boolean> | undefined;
+    if (isRecord(item.sizeStockJson)) {
+      sizeStockJson = item.sizeStockJson as Record<string, boolean>;
+    }
 
     return [
       {
@@ -54,8 +53,8 @@ export function normalizeItems(value: unknown): WatchItem[] {
         url,
         targetPrice,
         currency: toOptionalString(item.currency) ?? "USD",
+        size: toOptionalString(item.size),
         parser: { type: "regex", patterns },
-        stockPatterns,
         lastPrice: toOptionalNumber(item.lastPrice),
         lastCheckedAt: toOptionalNumber(item.lastCheckedAt),
         lastError: toOptionalString(item.lastError),
@@ -65,8 +64,9 @@ export function normalizeItems(value: unknown): WatchItem[] {
           typeof item.fallbackVerified === "boolean"
             ? item.fallbackVerified
             : undefined,
-        lastInStock:
-          typeof item.lastInStock === "boolean" ? item.lastInStock : undefined
+        isOutOfStock:
+          typeof item.isOutOfStock === "boolean" ? item.isOutOfStock : undefined,
+        sizeStockJson
       }
     ];
   });
@@ -79,22 +79,40 @@ export function itemToPayload(item: WatchItem): WatchItemPayload {
     url: item.url,
     targetPrice: item.targetPrice,
     currency: item.currency,
+    size: item.size,
     parser: {
       type: "regex",
       patterns: item.parser.patterns
-    },
-    stockPatterns: item.stockPatterns
+    }
   };
+}
+
+export function normalizeLlmKeys(value: unknown): LlmApiKey[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((row) => {
+    if (!isRecord(row)) return [];
+    const id = Number(row.id);
+    const label = toOptionalString(row.label);
+    if (!Number.isInteger(id) || !label) return [];
+
+    return [
+      {
+        id,
+        provider: "gemini" as const,
+        label,
+        isEnabled: Boolean(row.isEnabled),
+        lastUsedAt: toOptionalNumber(row.lastUsedAt),
+        quotaErrorAt: toOptionalNumber(row.quotaErrorAt),
+        createdAt: toOptionalNumber(row.createdAt) ?? Date.now()
+      }
+    ];
+  });
 }
 
 export function parseCheckSuccess(value: unknown): CheckSuccess {
   if (!isRecord(value)) {
     throw new Error("Invalid check response");
-  }
-
-  // 품절 응답
-  if (value.soldOut === true) {
-    return { soldOut: true, inStock: false };
   }
 
   const price = Number(value.price);
@@ -111,15 +129,12 @@ export function parseCheckSuccess(value: unknown): CheckSuccess {
       ? matchedParser.pattern
       : undefined;
 
-  const inStock = value.inStock === true ? (true as const) : null;
-
   return {
-    soldOut: false,
-    inStock,
     price,
     matchedPattern,
     confidence,
-    verifiedByRecheck
+    verifiedByRecheck,
+    isOutOfStock: typeof value.isOutOfStock === "boolean" ? value.isOutOfStock : undefined
   };
 }
 

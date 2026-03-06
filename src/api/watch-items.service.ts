@@ -9,38 +9,69 @@ export type WatchItemDto = {
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string | undefined;
   parser: {
     type: "regex";
     patterns: string[];
   };
-  stockPatterns: string[];
   lastPrice?: number | undefined;
   lastCheckedAt?: number | undefined;
   lastError?: string | undefined;
   lastMatchedPattern?: string | undefined;
   matchConfidence?: CheckConfidence | undefined;
   fallbackVerified?: boolean | undefined;
-  lastInStock?: boolean | undefined;
+  isOutOfStock?: boolean | undefined;
+  sizeStockJson?: Record<string, boolean> | undefined;
 };
 
 export type UpsertWatchItemInput = {
   id: string;
+  userId: number;
   name: string;
   url: string;
   targetPrice: number;
   currency: string;
+  size?: string | undefined;
   patterns: string[];
-  stockPatterns: string[];
   intervalMinutes?: number;
+};
+
+export type LlmParserInput = {
+  watchId: string;
+  userId: number;
+  pricePattern: string;
+  priceFlags: string;
+  stockPattern: string | null;
+  stockFlags: string;
+  sizeStockPatterns: Array<{ size: string; pattern: string; flags: string }>;
+  initialIsOutOfStock?: boolean | undefined;
+};
+
+export type LlmApiKeyDto = {
+  id: number;
+  provider: "gemini";
+  label: string;
+  isEnabled: boolean;
+  lastUsedAt?: number | undefined;
+  quotaErrorAt?: number | undefined;
+  createdAt: number;
+};
+
+export type CreateLlmApiKeyInput = {
+  provider: "gemini";
+  label: string;
+  apiKey: string;
 };
 
 export type ParserCandidate = {
   id: number;
   type: "regex" | "jsonPath";
+  kind: "price" | "stock" | "size_stock";
   pattern?: string | undefined;
   flags?: string | undefined;
   path?: string | undefined;
   tier?: "primary" | "secondary" | "fallback" | undefined;
+  targetSize?: string | undefined;
 };
 
 export type CheckableWatchItem = {
@@ -48,9 +79,9 @@ export type CheckableWatchItem = {
   name: string;
   url: string;
   currency?: string | undefined;
+  size?: string | undefined;
   targetPrice: number;
   parsers: ParserCandidate[];
-  stockPatterns: string[];
 };
 
 export type CheckSuccessInput = {
@@ -58,6 +89,7 @@ export type CheckSuccessInput = {
   startedAt: number;
   finishedAt: number;
   price: number;
+  isOutOfStock?: boolean | undefined;
   confidence: CheckConfidence;
   verifiedByRecheck: boolean;
   matchedParserId?: number | undefined;
@@ -81,6 +113,7 @@ type ItemRow = RowDataPacket & {
   url: string;
   target_price: number | string;
   currency: string | null;
+  size: string | null;
   interval_minutes: number;
   last_price: number | string | null;
   last_checked_at: Date | string | null;
@@ -88,16 +121,29 @@ type ItemRow = RowDataPacket & {
   matched_pattern: string | null;
   last_confidence: CheckConfidence | null;
   last_verified_by_recheck: number | boolean | null;
-  last_in_stock: number | boolean | null;
+  is_out_of_stock: number | boolean | null;
+  size_stock_json: string | null;
+};
+
+type LlmApiKeyRow = RowDataPacket & {
+  id: number;
+  provider: "gemini";
+  label: string;
+  is_enabled: number | boolean;
+  last_used_at: Date | string | null;
+  quota_error_at: Date | string | null;
+  created_at: Date | string;
 };
 
 type ParserRow = RowDataPacket & {
   id: number;
   watch_id: string;
   parser_type: "regex" | "jsonPath";
+  parser_kind: "price" | "stock" | "size_stock";
   pattern: string | null;
   flags: string;
   json_path: string | null;
+  target_size: string | null;
   tier: "primary" | "secondary" | "fallback" | null;
   position: number;
 };
@@ -108,6 +154,7 @@ type CheckableItemRow = RowDataPacket & {
   url: string;
   target_price: number | string;
   currency: string | null;
+  size: string | null;
 };
 
 type GlobalConfigRow = RowDataPacket & {
@@ -120,7 +167,7 @@ type GlobalConfigRow = RowDataPacket & {
 export class WatchItemsService {
   constructor(private readonly database: DatabaseService) {}
 
-  async listItems(): Promise<WatchItemDto[]> {
+  async listItems(userId: number): Promise<WatchItemDto[]> {
     const itemRows = await this.database.queryRows<ItemRow[]>(
       `SELECT
         w.id,
@@ -128,6 +175,7 @@ export class WatchItemsService {
         w.url,
         w.target_price,
         w.currency,
+        w.size,
         w.interval_minutes,
         s.last_price,
         s.last_checked_at,
@@ -135,41 +183,53 @@ export class WatchItemsService {
         p.pattern AS matched_pattern,
         s.last_confidence,
         s.last_verified_by_recheck,
-        s.last_in_stock
+        s.is_out_of_stock,
+        s.size_stock_json
        FROM watch_item w
        LEFT JOIN watch_state s ON s.watch_id = w.id
        LEFT JOIN watch_parser p ON p.id = s.last_matched_parser_id
-       WHERE w.enabled = 1
-       ORDER BY w.created_at DESC, w.id DESC`
+       WHERE w.enabled = 1 AND w.user_id = ?
+       ORDER BY w.created_at DESC, w.id DESC`,
+      [userId]
     );
 
-    const watchIds = itemRows.map((row) => row.id);
-    const parserMap = await this.loadParserMap(watchIds);
-    const stockPatternMap = await this.loadStockPatternMap(watchIds);
+    const parserMap = await this.loadParserMap(itemRows.map((row) => row.id));
 
-    return itemRows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      url: row.url,
-      targetPrice: Number(row.target_price),
-      currency: row.currency ?? "USD",
-      parser: {
-        type: "regex",
-        patterns: parserMap.get(row.id) ?? []
-      },
-      stockPatterns: stockPatternMap.get(row.id) ?? [],
-      lastPrice: toNullableNumber(row.last_price),
-      lastCheckedAt: toNullableMillis(row.last_checked_at),
-      lastError: row.last_error ?? undefined,
-      lastMatchedPattern: row.matched_pattern ?? undefined,
-      matchConfidence: row.last_confidence ?? undefined,
-      fallbackVerified:
-        row.last_verified_by_recheck === null
-          ? undefined
-          : Boolean(row.last_verified_by_recheck),
-      lastInStock:
-        row.last_in_stock === null ? undefined : Boolean(row.last_in_stock)
-    }));
+    return itemRows.map((row) => {
+      let sizeStockJson: Record<string, boolean> | undefined;
+      if (row.size_stock_json) {
+        try {
+          sizeStockJson = JSON.parse(row.size_stock_json) as Record<string, boolean>;
+        } catch {
+          sizeStockJson = undefined;
+        }
+      }
+
+      return {
+        id: row.id,
+        name: row.name,
+        url: row.url,
+        targetPrice: Number(row.target_price),
+        currency: row.currency ?? "USD",
+        size: row.size ?? undefined,
+        parser: {
+          type: "regex",
+          patterns: parserMap.get(row.id) ?? []
+        },
+        lastPrice: toNullableNumber(row.last_price),
+        lastCheckedAt: toNullableMillis(row.last_checked_at),
+        lastError: row.last_error ?? undefined,
+        lastMatchedPattern: row.matched_pattern ?? undefined,
+        matchConfidence: row.last_confidence ?? undefined,
+        fallbackVerified:
+          row.last_verified_by_recheck === null
+            ? undefined
+            : Boolean(row.last_verified_by_recheck),
+        isOutOfStock:
+          row.is_out_of_stock === null ? undefined : Boolean(row.is_out_of_stock),
+        sizeStockJson
+      };
+    });
   }
 
   async createItem(input: UpsertWatchItemInput): Promise<void> {
@@ -180,24 +240,28 @@ export class WatchItemsService {
       await connection.execute(
         `INSERT INTO watch_item (
           id,
+          user_id,
           name,
           url,
           target_price,
           currency,
+          size,
           interval_minutes,
           enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [
           input.id,
+          input.userId,
           input.name,
           input.url,
           input.targetPrice,
           input.currency,
+          input.size ?? null,
           intervalMinutes
         ]
       );
 
-      await this.replaceParsers(connection, input.id, input.patterns, input.stockPatterns);
+      await this.replaceParsers(connection, input.id, input.patterns);
 
       await connection.execute(
         `INSERT IGNORE INTO watch_state (watch_id, failures)
@@ -207,7 +271,7 @@ export class WatchItemsService {
     });
   }
 
-  async updateItem(id: string, input: Omit<UpsertWatchItemInput, "id">): Promise<boolean> {
+  async updateItem(id: string, userId: number, input: Omit<UpsertWatchItemInput, "id" | "userId">): Promise<boolean> {
     return this.database.withTransaction(async (connection) => {
       const result = await connection.execute(
         `UPDATE watch_item
@@ -216,38 +280,142 @@ export class WatchItemsService {
            url = ?,
            target_price = ?,
            currency = ?,
+           size = ?,
            updated_at = NOW(3)
          WHERE id = ?
+           AND user_id = ?
            AND enabled = 1`,
-        [input.name, input.url, input.targetPrice, input.currency, id]
+        [input.name, input.url, input.targetPrice, input.currency, input.size ?? null, id, userId]
       );
 
       if (result.affectedRows === 0) {
         return false;
       }
 
-      await this.replaceParsers(connection, id, input.patterns, input.stockPatterns);
+      await this.replaceParsers(connection, id, input.patterns);
       return true;
     });
   }
 
-  async deleteItem(id: string): Promise<boolean> {
+  /** LLM이 생성한 파서들을 저장 (기존 파서 전체 교체) */
+  async saveLlmParsers(input: LlmParserInput): Promise<void> {
+    // Verify ownership
+    const ownerRows = await this.database.queryRows<(RowDataPacket & { cnt: number })[]>(
+      `SELECT COUNT(*) as cnt FROM watch_item WHERE id = ? AND user_id = ?`,
+      [input.watchId, input.userId],
+    );
+    if (!ownerRows[0] || Number(ownerRows[0].cnt) === 0) {
+      throw new Error("Item not found");
+    }
+
+    await this.database.withTransaction(async (connection) => {
+      await connection.execute(`DELETE FROM watch_parser WHERE watch_id = ?`, [input.watchId]);
+
+      let position = 0;
+
+      // 가격 파서
+      await connection.execute(
+        `INSERT INTO watch_parser
+          (watch_id, position, tier, parser_type, parser_kind, pattern, flags, json_path, enabled)
+         VALUES (?, ?, 'primary', 'regex', 'price', ?, ?, NULL, 1)`,
+        [input.watchId, position++, input.pricePattern, input.priceFlags]
+      );
+
+      // 품절 파서
+      if (input.stockPattern) {
+        await connection.execute(
+          `INSERT INTO watch_parser
+            (watch_id, position, tier, parser_type, parser_kind, pattern, flags, json_path, enabled)
+           VALUES (?, ?, 'primary', 'regex', 'stock', ?, ?, NULL, 1)`,
+          [input.watchId, position++, input.stockPattern, input.stockFlags]
+        );
+      }
+
+      // 사이즈별 재고 파서
+      for (const sp of input.sizeStockPatterns) {
+        await connection.execute(
+          `INSERT INTO watch_parser
+            (watch_id, position, tier, parser_type, parser_kind, pattern, flags, target_size, json_path, enabled)
+           VALUES (?, ?, 'secondary', 'regex', 'size_stock', ?, ?, ?, NULL, 1)`,
+          [input.watchId, position++, sp.pattern, sp.flags, sp.size]
+        );
+      }
+
+      // 만약 초기 상태가 주어졌다면, watch_state에 즉시 기록하여 UI에서 바로 확인할 수 있도록 함
+      if (input.initialIsOutOfStock !== undefined) {
+          await connection.execute(
+            `INSERT INTO watch_state (watch_id, is_out_of_stock, failures)
+             VALUES (?, ?, 0)
+             ON DUPLICATE KEY UPDATE is_out_of_stock = VALUES(is_out_of_stock)`,
+            [input.watchId, input.initialIsOutOfStock ? 1 : 0]
+          );
+      }
+    });
+  }
+
+  // ── LLM API 키 CRUD ────────────────────────────────────────────────────────
+
+  async listLlmApiKeys(): Promise<LlmApiKeyDto[]> {
+    const rows = await this.database.queryRows<LlmApiKeyRow[]>(
+      `SELECT id, provider, label, is_enabled, last_used_at, quota_error_at, created_at
+       FROM llm_api_key
+       ORDER BY created_at ASC`
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      provider: row.provider,
+      label: row.label,
+      isEnabled: Boolean(row.is_enabled),
+      lastUsedAt: toNullableMillis(row.last_used_at),
+      quotaErrorAt: toNullableMillis(row.quota_error_at),
+      createdAt: toNullableMillis(row.created_at) ?? Date.now()
+    }));
+  }
+
+  async createLlmApiKey(input: CreateLlmApiKeyInput): Promise<number> {
     const result = await this.database.execute(
-      `DELETE FROM watch_item WHERE id = ?`,
+      `INSERT INTO llm_api_key (provider, label, api_key, is_enabled)
+       VALUES (?, ?, ?, 1)`,
+      [input.provider, input.label, input.apiKey]
+    );
+    return result.insertId;
+  }
+
+  async deleteLlmApiKey(id: number): Promise<boolean> {
+    const result = await this.database.execute(
+      `DELETE FROM llm_api_key WHERE id = ?`,
       [id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  async toggleLlmApiKey(id: number, enabled: boolean): Promise<boolean> {
+    const result = await this.database.execute(
+      `UPDATE llm_api_key SET is_enabled = ?, quota_error_at = NULL WHERE id = ?`,
+      [enabled ? 1 : 0, id]
+    );
+    return result.affectedRows > 0;
+  }
+
+  async deleteItem(id: string, userId: number): Promise<boolean> {
+    const result = await this.database.execute(
+      `DELETE FROM watch_item WHERE id = ? AND user_id = ?`,
+      [id, userId]
     );
 
     return result.affectedRows > 0;
   }
 
-  async getCheckableItem(id: string): Promise<CheckableWatchItem | null> {
+  async getCheckableItem(id: string, userId: number): Promise<CheckableWatchItem | null> {
     const itemRows = await this.database.queryRows<CheckableItemRow[]>(
-      `SELECT id, name, url, target_price, currency
+      `SELECT id, name, url, target_price, currency, size
        FROM watch_item
        WHERE id = ?
+         AND user_id = ?
          AND enabled = 1
        LIMIT 1`,
-      [id]
+      [id, userId]
     );
 
     if (itemRows.length === 0) {
@@ -259,15 +427,16 @@ export class WatchItemsService {
         id,
         watch_id,
         parser_type,
+        parser_kind,
         pattern,
         flags,
         json_path,
+        target_size,
         tier,
         position
        FROM watch_parser
        WHERE watch_id = ?
          AND enabled = 1
-         AND role = 'price'
        ORDER BY position ASC`,
       [id]
     );
@@ -275,17 +444,6 @@ export class WatchItemsService {
     if (parserRows.length === 0) {
       return null;
     }
-
-    const stockRows = await this.database.queryRows<ParserRow[]>(
-      `SELECT pattern
-       FROM watch_parser
-       WHERE watch_id = ?
-         AND enabled = 1
-         AND role = 'stock'
-         AND parser_type = 'regex'
-       ORDER BY position ASC`,
-      [id]
-    );
 
     const row = itemRows[0];
     if (!row) {
@@ -297,18 +455,18 @@ export class WatchItemsService {
       name: row.name,
       url: row.url,
       currency: row.currency ?? undefined,
+      size: row.size ?? undefined,
       targetPrice: Number(row.target_price),
       parsers: parserRows.map((parser) => ({
         id: Number(parser.id),
         type: parser.parser_type,
+        kind: parser.parser_kind,
         pattern: parser.pattern ?? undefined,
         flags: parser.flags || undefined,
         path: parser.json_path ?? undefined,
-        tier: parser.tier ?? undefined
-      })),
-      stockPatterns: stockRows
-        .map((r) => r.pattern ?? "")
-        .filter((p) => p.length > 0)
+        tier: parser.tier ?? undefined,
+        targetSize: parser.target_size ?? undefined
+      }))
     };
   }
 
@@ -345,6 +503,12 @@ export class WatchItemsService {
   }
 
   async recordCheckSuccess(input: CheckSuccessInput): Promise<void> {
+    const updateStockSyntax = input.isOutOfStock !== undefined 
+        ? `, is_out_of_stock = ${input.isOutOfStock ? 1 : 0}` 
+        : "";
+    const insertStockCol = input.isOutOfStock !== undefined ? ", is_out_of_stock" : "";
+    const insertStockVal = input.isOutOfStock !== undefined ? `, ${input.isOutOfStock ? 1 : 0}` : "";
+
     await this.database.withTransaction(async (connection) => {
       await connection.execute(
         `INSERT INTO watch_state (
@@ -356,8 +520,8 @@ export class WatchItemsService {
           last_matched_parser_id,
           last_confidence,
           last_verified_by_recheck,
-          updated_at
-        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, NOW(3))
+          updated_at${insertStockCol}
+        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, NOW(3)${insertStockVal})
         ON DUPLICATE KEY UPDATE
           failures = 0,
           last_error = NULL,
@@ -366,7 +530,7 @@ export class WatchItemsService {
           last_matched_parser_id = VALUES(last_matched_parser_id),
           last_confidence = VALUES(last_confidence),
           last_verified_by_recheck = VALUES(last_verified_by_recheck),
-          updated_at = NOW(3)`,
+          updated_at = NOW(3)${updateStockSyntax}`,
         [
           input.itemId,
           input.price,
@@ -451,54 +615,6 @@ export class WatchItemsService {
     });
   }
 
-  async recordSoldOutCheck(input: {
-    itemId: string;
-    startedAt: number;
-    finishedAt: number;
-    responseContentType?: string | undefined;
-    triggerSource: "api_check";
-  }): Promise<void> {
-    await this.database.withTransaction(async (connection) => {
-      await connection.execute(
-        `INSERT INTO watch_state (
-          watch_id,
-          failures,
-          last_error,
-          last_in_stock,
-          last_checked_at,
-          updated_at
-        ) VALUES (?, 0, NULL, 0, ?, NOW(3))
-        ON DUPLICATE KEY UPDATE
-          failures = 0,
-          last_error = NULL,
-          last_in_stock = 0,
-          last_checked_at = VALUES(last_checked_at),
-          updated_at = NOW(3)`,
-        [input.itemId, new Date(input.finishedAt)]
-      );
-
-      await connection.execute(
-        `INSERT INTO watch_check_run (
-          watch_id,
-          trigger_source,
-          started_at,
-          finished_at,
-          response_content_type,
-          success,
-          duration_ms
-        ) VALUES (?, ?, ?, ?, ?, 1, ?)`,
-        [
-          input.itemId,
-          input.triggerSource,
-          new Date(input.startedAt),
-          new Date(input.finishedAt),
-          input.responseContentType ?? null,
-          Math.max(0, input.finishedAt - input.startedAt)
-        ]
-      );
-    });
-  }
-
   private async loadParserMap(watchIds: string[]): Promise<Map<string, string[]>> {
     const parserMap = new Map<string, string[]>();
 
@@ -543,8 +659,7 @@ export class WatchItemsService {
       execute(sql: string, params?: (string | number | boolean | Date | null)[]): Promise<{ affectedRows: number }>;
     },
     watchId: string,
-    patterns: string[],
-    stockPatterns: string[]
+    patterns: string[]
   ): Promise<void> {
     await connection.execute(`DELETE FROM watch_parser WHERE watch_id = ?`, [watchId]);
 
@@ -552,7 +667,6 @@ export class WatchItemsService {
       await connection.execute(
         `INSERT INTO watch_parser (
           watch_id,
-          role,
           position,
           tier,
           parser_type,
@@ -560,67 +674,10 @@ export class WatchItemsService {
           flags,
           json_path,
           enabled
-        ) VALUES (?, 'price', ?, ?, 'regex', ?, '', NULL, 1)`,
+        ) VALUES (?, ?, ?, 'regex', ?, '', NULL, 1)`,
         [watchId, index, resolveTier(index), pattern]
       );
     }
-
-    for (const [index, pattern] of stockPatterns.entries()) {
-      await connection.execute(
-        `INSERT INTO watch_parser (
-          watch_id,
-          role,
-          position,
-          tier,
-          parser_type,
-          pattern,
-          flags,
-          json_path,
-          enabled
-        ) VALUES (?, 'stock', ?, NULL, 'regex', ?, '', NULL, 1)`,
-        [watchId, index, pattern]
-      );
-    }
-  }
-
-  private async loadStockPatternMap(watchIds: string[]): Promise<Map<string, string[]>> {
-    const result = new Map<string, string[]>();
-
-    if (watchIds.length === 0) {
-      return result;
-    }
-
-    const placeholders = watchIds.map(() => "?").join(", ");
-    const rows = await this.database.queryRows<ParserRow[]>(
-      `SELECT
-        id,
-        watch_id,
-        parser_type,
-        pattern,
-        flags,
-        json_path,
-        tier,
-        position
-       FROM watch_parser
-       WHERE enabled = 1
-         AND role = 'stock'
-         AND parser_type = 'regex'
-         AND watch_id IN (${placeholders})
-       ORDER BY watch_id ASC, position ASC`,
-      watchIds
-    );
-
-    for (const row of rows) {
-      if (!row.pattern) {
-        continue;
-      }
-
-      const current = result.get(row.watch_id) ?? [];
-      current.push(row.pattern);
-      result.set(row.watch_id, current);
-    }
-
-    return result;
   }
 
   private async getDefaultIntervalMinutes(): Promise<number> {

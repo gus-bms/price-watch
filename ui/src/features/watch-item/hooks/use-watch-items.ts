@@ -75,31 +75,20 @@ export function useWatchItems() {
       const now = Date.now();
 
       setItems((current) =>
-        current.map((item) => {
-          if (item.id !== itemId) return item;
-
-          if (parsed.soldOut) {
-            // 품절 확인 → Sold Out 배지 즉시 표시
-            return {
-              ...item,
-              lastCheckedAt: now,
-              lastError: undefined,
-              lastInStock: false
-            };
-          }
-
-          return {
-            ...item,
-            lastPrice: parsed.price,
-            lastCheckedAt: now,
-            lastError: undefined,
-            lastMatchedPattern: parsed.matchedPattern,
-            matchConfidence: parsed.confidence,
-            fallbackVerified: parsed.verifiedByRecheck,
-            // stock 패턴이 있고 인스톡이 확인된 경우만 lastInStock 갱신
-            ...(parsed.inStock === true ? { lastInStock: true } : {})
-          };
-        })
+        current.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                lastPrice: parsed.price,
+                lastCheckedAt: now,
+                lastError: undefined,
+                lastMatchedPattern: parsed.matchedPattern,
+                matchConfidence: parsed.confidence,
+                fallbackVerified: parsed.verifiedByRecheck,
+                ...(parsed.isOutOfStock !== undefined ? { isOutOfStock: parsed.isOutOfStock } : {})
+              }
+            : item
+        )
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
