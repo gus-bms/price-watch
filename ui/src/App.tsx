@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import styles from "./App.module.css";
+import { useAuth } from "./features/auth/hooks/use-auth";
 import { AddItemModal } from "./features/watch-item/components/AddItemModal";
 import { LlmKeysModal } from "./features/watch-item/components/LlmKeysModal";
 import { WatchItemCard } from "./features/watch-item/components/WatchItemCard";
@@ -19,6 +20,7 @@ export default function App() {
     checkItem
   } = useWatchItems();
 
+  const { user, logout } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [showLlmKeys, setShowLlmKeys] = useState(false);
@@ -64,6 +66,17 @@ export default function App() {
             {loadError && <p className={styles.errorMsg}>{loadError}</p>}
           </div>
           <div className={styles.headerActions}>
+            {user && (
+              <div className={styles.userInfo}>
+                {user.profileImageUrl && (
+                  <img src={user.profileImageUrl} alt="" className={styles.avatar} />
+                )}
+                <span className={styles.userName}>{user.nickname}</span>
+                <button className={styles.logoutBtn} onClick={logout} type="button">
+                  로그아웃
+                </button>
+              </div>
+            )}
             <button className={styles.llmKeysBtn} onClick={() => { setShowLlmKeys(true); }} type="button">
               Gemini 키
             </button>

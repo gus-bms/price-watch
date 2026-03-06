@@ -1,0 +1,115 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.card {
+  width: min(420px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+/* ── 헤더 ────────────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 24px 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+/* ── 스텝 목록 ───────────────────────────────────────────────────────── */
+.stepList {
+  list-style: none;
+  margin: 0;
+  padding: 0 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+  transition: color 0.2s;
+}
+
+.stepActive {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.stepDone {
+  color: var(--green);
+}
+
+.stepError {
+  color: var(--red);
+}
+
+.stepIcon {
+  width: 18px;
+  text-align: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.stepMessage {
+  flex: 1;
+}
+
+/* ── 하단 상태 메시지 ────────────────────────────────────────────────── */
+.errorMsg {
+  margin: 0 24px 16px;
+  color: var(--red);
+  font-size: 0.85rem;
+}
+
+/* ── 에러 시 다시 시도 버튼 ─────────────────────────────────────────── */
+.retryBtn {
+  display: block;
+  margin: 0 24px 24px;
+  padding: 11px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.retryBtn:hover {
+  opacity: 0.88;
+}
+
+/* ── spinner ─────────────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

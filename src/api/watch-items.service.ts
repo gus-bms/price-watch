@@ -26,6 +26,7 @@ export type WatchItemDto = {
 
 export type UpsertWatchItemInput = {
   id: string;
+  userId: number;
   name: string;
   url: string;
   targetPrice: number;
@@ -37,6 +38,7 @@ export type UpsertWatchItemInput = {
 
 export type LlmParserInput = {
   watchId: string;
+  userId: number;
   pricePattern: string;
   priceFlags: string;
   stockPattern: string | null;
@@ -165,7 +167,7 @@ type GlobalConfigRow = RowDataPacket & {
 export class WatchItemsService {
   constructor(private readonly database: DatabaseService) {}
 
-  async listItems(): Promise<WatchItemDto[]> {
+  async listItems(userId: number): Promise<WatchItemDto[]> {
     const itemRows = await this.database.queryRows<ItemRow[]>(
       `SELECT
         w.id,
@@ -186,8 +188,9 @@ export class WatchItemsService {
        FROM watch_item w
        LEFT JOIN watch_state s ON s.watch_id = w.id
        LEFT JOIN watch_parser p ON p.id = s.last_matched_parser_id
-       WHERE w.enabled = 1
-       ORDER BY w.created_at DESC, w.id DESC`
+       WHERE w.enabled = 1 AND w.user_id = ?
+       ORDER BY w.created_at DESC, w.id DESC`,
+      [userId]
     );
 
     const parserMap = await this.loadParserMap(itemRows.map((row) => row.id));
@@ -237,6 +240,7 @@ export class WatchItemsService {
       await connection.execute(
         `INSERT INTO watch_item (
           id,
+          user_id,
           name,
           url,
           target_price,
@@ -244,9 +248,10 @@ export class WatchItemsService {
           size,
           interval_minutes,
           enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [
           input.id,
+          input.userId,
           input.name,
           input.url,
           input.targetPrice,
@@ -266,7 +271,7 @@ export class WatchItemsService {
     });
   }
 
-  async updateItem(id: string, input: Omit<UpsertWatchItemInput, "id">): Promise<boolean> {
+  async updateItem(id: string, userId: number, input: Omit<UpsertWatchItemInput, "id" | "userId">): Promise<boolean> {
     return this.database.withTransaction(async (connection) => {
       const result = await connection.execute(
         `UPDATE watch_item
@@ -278,8 +283,9 @@ export class WatchItemsService {
            size = ?,
            updated_at = NOW(3)
          WHERE id = ?
+           AND user_id = ?
            AND enabled = 1`,
-        [input.name, input.url, input.targetPrice, input.currency, input.size ?? null, id]
+        [input.name, input.url, input.targetPrice, input.currency, input.size ?? null, id, userId]
       );
 
       if (result.affectedRows === 0) {
@@ -293,6 +299,15 @@ export class WatchItemsService {
 
   /** LLM이 생성한 파서들을 저장 (기존 파서 전체 교체) */
   async saveLlmParsers(input: LlmParserInput): Promise<void> {
+    // Verify ownership
+    const ownerRows = await this.database.queryRows<(RowDataPacket & { cnt: number })[]>(
+      `SELECT COUNT(*) as cnt FROM watch_item WHERE id = ? AND user_id = ?`,
+      [input.watchId, input.userId],
+    );
+    if (!ownerRows[0] || Number(ownerRows[0].cnt) === 0) {
+      throw new Error("Item not found");
+    }
+
     await this.database.withTransaction(async (connection) => {
       await connection.execute(`DELETE FROM watch_parser WHERE watch_id = ?`, [input.watchId]);
 
@@ -383,23 +398,24 @@ export class WatchItemsService {
     return result.affectedRows > 0;
   }
 
-  async deleteItem(id: string): Promise<boolean> {
+  async deleteItem(id: string, userId: number): Promise<boolean> {
     const result = await this.database.execute(
-      `DELETE FROM watch_item WHERE id = ?`,
-      [id]
+      `DELETE FROM watch_item WHERE id = ? AND user_id = ?`,
+      [id, userId]
     );
 
     return result.affectedRows > 0;
   }
 
-  async getCheckableItem(id: string): Promise<CheckableWatchItem | null> {
+  async getCheckableItem(id: string, userId: number): Promise<CheckableWatchItem | null> {
     const itemRows = await this.database.queryRows<CheckableItemRow[]>(
       `SELECT id, name, url, target_price, currency, size
        FROM watch_item
        WHERE id = ?
+         AND user_id = ?
          AND enabled = 1
        LIMIT 1`,
-      [id]
+      [id, userId]
     );
 
     if (itemRows.length === 0) {
