@@ -22,3 +22,47 @@
   - Commit each group with clear message.
   - Push commits to `origin/main`.
 - Status: done
+
+## 2026-03-05 23:49:00 KST
+- Request: Merge `feat/docker-cicd` into current branch, follow `docker.readme.md`, and deploy to OCI server `134.185.106.60` using SSH key `~/.ssh/id_ed25519_personal`.
+- Status: done
+
+## 2026-03-06 00:05:50 KST
+- Request: Continue OCI deployment on a fresh server and import current local DB data into the server DB.
+- Status: done
+
+## 2026-03-06 00:21:40 KST
+- Request: Switch to low-spec-safe deployment strategy (no server build, add swap) and continue deployment with local DB migration.
+- Status: done
+
+## 2026-03-06 20:04:19 KST
+- Request: Deploy `feat/oauth-login` branch to OCI server `134.185.106.60` with the existing low-spec-safe flow.
+- Status: approved
+
+## 2026-03-06 20:16:34 KST
+- Request: Stop Docker-based deployment and redeploy `feat/oauth-login` by uploading built artifacts directly to server.
+- Status: approved
+
+## 2026-03-06 21:33:27 KST
+- Request: Deploy the current local `feat/oauth-login` state to the OCI server using a non-Docker flow and local data.
+- Status: approved
+
+## 2026-03-06 22:11:47 KST
+- Request: Deploy the current local `feat/oauth-login` state to AWS EC2 `15.165.15.175` with Docker Compose and Nginx, using `~/Downloads/price-watch.pem`, and migrate local DB data.
+- Status: done
+
+## 2026-03-06 22:28:03 KST
+- Request: Diagnose Kakao login error `KOE006` on the AWS-deployed app and identify the required Kakao console settings for the current deployment URL.
+- Status: done
+
+## 2026-03-06 23:17:59 KST
+- Request: Fix the post-login AWS error `Unknown column 'w.user_id' in 'where clause'` on the deployed app.
+- Status: done
+
+## 2026-03-06 23:30:39 KST
+- Request: Set up CI/CD so pushes to `main` automatically redeploy the AWS EC2 server via GitHub Actions.
+- Status: done
+
+## 2026-03-06 23:41:27 KST
+- Request: Commit all current work and merge it into `main`.
+- Status: approved
