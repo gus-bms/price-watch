@@ -34,6 +34,8 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+mkdir -p "$SCRIPT_DIR/certbot/www"
+
 for archive in "$BACKEND_ARCHIVE" "$FRONTEND_ARCHIVE"; do
   if [ -f "$archive" ]; then
     gunzip -c "$archive" | docker load >/dev/null

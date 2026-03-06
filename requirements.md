@@ -70,3 +70,15 @@
 ## 2026-03-06 23:46:45 KST
 - Request: Merge into `main` while prioritizing the current `feat/oauth-login` functionality when resolving conflicts.
 - Status: done
+
+## 2026-03-07 00:11:21 KST
+- Request: Configure Let's Encrypt + Certbot SSL for `price-watch.duckdns.org` on the AWS EC2 deployment.
+- Status: done
+
+## 2026-03-07 00:33:40 KST
+- Request: Allow editing the product name directly in the item edit flow and move the modal close `X` button to the top-right.
+- Status: done
+
+## 2026-03-07 00:45:33 KST
+- Request: Commit the pending SSL and item-edit UI changes, then push `main` so deployment can proceed.
+- Status: done
