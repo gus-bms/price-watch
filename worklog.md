@@ -158,3 +158,21 @@
   - Reused the already validated frontend build as the final pre-push check.
 - Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/Dockerfile`, `ui/nginx.conf`, `ui/src/App.module.css`, `ui/src/features/watch-item/components/AddItemModal.tsx`
 - Result: completed
+
+## 2026-03-07 00:48:42 KST
+- Task: Remove local `.claude` worktrees and their associated local branches.
+- Changes:
+  - Removed `.claude/worktrees/clever-hamilton`, `.claude/worktrees/intelligent-hodgkin`, and `.claude/worktrees/pensive-shirley`.
+  - Deleted local branches `claude/clever-hamilton`, `claude/intelligent-hodgkin`, and `claude/pensive-shirley`.
+  - Pruned stale worktree metadata and confirmed no remaining `.claude` worktree directories.
+- Files touched: `worklog.md`, local git worktree metadata
+- Result: completed
+
+## 2026-03-07 00:56:42 KST
+- Task: Move the item-card delete button to the top-right corner and push `main`.
+- Changes:
+  - Moved the delete control out of the card action row and anchored it to the item card's top-right corner.
+  - Added card-specific delete-button positioning styles without changing other delete-button usages.
+  - Validated the UI with `npm run build` in `ui/`.
+- Files touched: `requirements.md`, `worklog.md`, `ui/src/features/watch-item/components/WatchItemCard.tsx`, `ui/src/App.module.css`
+- Result: completed

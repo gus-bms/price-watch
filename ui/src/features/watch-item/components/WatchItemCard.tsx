@@ -43,6 +43,15 @@ export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: Wat
 
   return (
     <article className={cardClassName}>
+      <button
+        className={`${styles.deleteBtn} ${styles.cardDeleteBtn}`}
+        onClick={() => { onDelete(item.id); }}
+        type="button"
+        aria-label="Delete item"
+      >
+        ×
+      </button>
+
       <div className={styles.cardTop}>
         <div>
           <h3 className={styles.cardName}>{item.name}</h3>
@@ -110,15 +119,6 @@ export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: Wat
 
         <button className={styles.editBtn} onClick={() => { onEdit(item.id); }} type="button">
           Edit
-        </button>
-
-        <button
-          className={styles.deleteBtn}
-          onClick={() => { onDelete(item.id); }}
-          type="button"
-          aria-label="Delete item"
-        >
-          x
         </button>
       </div>
     </article>
