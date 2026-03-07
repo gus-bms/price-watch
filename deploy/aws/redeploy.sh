@@ -54,7 +54,8 @@ if [ -f "$MIGRATION_FILE" ]; then
     mysql -u"$DB_USER" "$DB_NAME" < "$MIGRATION_FILE"
 fi
 
-compose up -d --force-recreate backend frontend
+compose up -d --force-recreate backend worker frontend
 wait_for_health pw-backend
+wait_for_health pw-worker
 wait_for_health pw-frontend
 compose ps
