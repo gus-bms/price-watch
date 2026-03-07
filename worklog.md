@@ -176,3 +176,23 @@
   - Validated the UI with `npm run build` in `ui/`.
 - Files touched: `requirements.md`, `worklog.md`, `ui/src/features/watch-item/components/WatchItemCard.tsx`, `ui/src/App.module.css`
 - Result: completed
+
+## 2026-03-07 10:08:06 KST
+- Task: Restore the background worker on AWS and reduce excess item-card height.
+- Changes:
+  - Confirmed the deployed stack had no worker service: `pw-backend` was running only in `--api` mode, and `watch_state.last_checked_at` had stalled for about 9 hours.
+  - Added a `worker` service to `deploy/aws/docker-compose.yml`, updated `deploy/aws/redeploy.sh` to recreate it, and disabled the API healthcheck for the worker container.
+  - Removed the fixed `300px` card height from `ui/src/App.module.css` to eliminate unused empty space.
+  - Rebuilt the frontend image for `linux/amd64`, uploaded the new deploy assets to EC2, and manually redeployed the stack.
+  - Verified on EC2 that `pw-worker` is running and `watch_state.last_checked_at` advanced to `2026-03-07 01:06:18 UTC`.
+- Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/src/App.module.css`, remote `/home/ec2-user/price-watch-deploy/*`
+- Result: completed
+
+## 2026-03-07 10:09:23 KST
+- Task: Commit the worker-recovery/card-height updates and push `main`.
+- Changes:
+  - Grouped the AWS worker restore and item-card height changes into a single commit on `main`.
+  - Included the updated requirement/worklog entries for the worker diagnosis and deployment follow-up.
+  - Pushed the commit to `origin/main` so the deployment workflow can pick up the new compose/redeploy config.
+- Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/src/App.module.css`
+- Result: completed

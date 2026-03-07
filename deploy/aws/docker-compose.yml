@@ -49,6 +49,25 @@ services:
       start_period: 15s
       retries: 5
 
+  worker:
+    image: price-watch-backend:aws-main
+    container_name: pw-worker
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: ["node", "dist/main.js"]
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_CONNECTION_LIMIT: ${DB_CONNECTION_LIMIT:-10}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    healthcheck:
+      disable: true
+
   frontend:
     image: price-watch-frontend:aws-main
     container_name: pw-frontend
@@ -56,6 +75,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      worker:
+        condition: service_started
     ports:
       - "${UI_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"

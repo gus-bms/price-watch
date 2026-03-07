@@ -86,3 +86,11 @@
 ## 2026-03-07 00:55:26 KST
 - Request: Move the `X` delete button on each item card to the top-right corner.
 - Status: done
+
+## 2026-03-07 10:03:01 KST
+- Request: Verify whether the background worker is actually running for registered items and reduce excess empty space by shrinking the item card height.
+- Status: done
+
+## 2026-03-07 10:09:14 KST
+- Request: Commit the worker-recovery and card-height changes, then push `main`.
+- Status: done
