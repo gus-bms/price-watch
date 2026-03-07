@@ -143,7 +143,7 @@ export default function App() {
               >
                 {outOfStock}
               </span>
-              <span className={styles.statLabel}>품절</span>
+              <span className={styles.statLabel}>SOLD OUT</span>
             </div>
             <div className={styles.stat}>
               <span
