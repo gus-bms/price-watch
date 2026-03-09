@@ -260,3 +260,24 @@
   - Verified with backend `npm run typecheck` and frontend `cd ui && npm run build`.
 - Files touched: `requirements.md`, `worklog.md`, `src/llm/parser-generator.service.ts`, `src/runner/scheduler.service.ts`, `src/api/watch-items.service.ts`, `ui/src/features/watch-item/components/WatchItemCard.tsx`, `ui/src/App.module.css`
 - Result: completed
+
+## 2026-03-09 22:02:51 KST
+- Task: Deploy the Farfetch stale-stock fix to AWS.
+- Changes:
+  - Added the deploy request to `requirements.md`.
+  - Committed the stale-stock fix on `main` as `72b2760` (`fix: clear stale stock state for unknown size results`) and pushed to `origin/main`.
+  - Triggered GitHub Actions workflow `Deploy AWS EC2` run `#7` for commit `72b2760e2d12d54dbb92cad99318eac0f49f80c9`.
+  - Confirmed the workflow reached `Redeploy on EC2` and then failed; public `https://price-watch.duckdns.org/api/health` still returns `{\"ok\":true}`, indicating the previous deployment remains serving traffic.
+  - Could not retrieve the failing step logs from the GitHub API without authentication; documented as the current blocker.
+- Files touched: `requirements.md`, `worklog.md`, git history
+- Result: blocked (AWS redeploy step failed; detailed remote logs unavailable from current environment)
+
+## 2026-03-09 22:09:19 KST
+- Task: Add a Ralph Lauren-specific mirror fallback so Polo pages can still be parsed when both HTTP and browser fetches are anti-bot blocked.
+- Changes:
+  - Investigated the blocked Ralph Lauren product and variation URLs and confirmed both plain HTTP and browser fallback were still receiving PerimeterX denial pages.
+  - Verified that the remote mirror endpoint `r.jina.ai` can fetch the same Ralph Lauren pages and expose size/price state in markdown.
+  - Added a Ralph Lauren-only remote mirror fallback in `HttpFetcherService` after browser fallback failure, and transformed mirror markdown into pseudo-HTML so the existing Ralph Lauren regex parsers still work.
+  - Verified with `npm run typecheck`, `npm run build`, and direct fetch tests against the blocked `Product-Variation` URL showing `price=519000` and `M` parsed as out of stock.
+- Files touched: `requirements.md`, `worklog.md`, `src/fetchers/http-fetcher.service.ts`
+- Result: completed
