@@ -103,7 +103,32 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
+          set +e
+          output=$(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
             chmod +x ~/price-watch-deploy/redeploy.sh
             ~/price-watch-deploy/redeploy.sh
-          '
+          ' 2>&1)
+          exit_code=$?
+          set -e
+
+          printf '%s\n' "$output"
+
+          if [ "$exit_code" -ne 0 ]; then
+            debug_output=$(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
+              set -e
+              docker compose -f ~/price-watch-deploy/docker-compose.yml --env-file ~/price-watch-deploy/.env ps || true
+              docker logs pw-backend --tail 80 || true
+              docker logs pw-worker --tail 80 || true
+              docker logs pw-frontend --tail 80 || true
+              docker logs pw-mysql --tail 80 || true
+            ' 2>&1 || true)
+
+            printf '%s\n' "$debug_output"
+
+            annotation_output=$(printf '%s\n%s\n' "$output" "$debug_output" | tail -n 40)
+            annotation_output=${annotation_output//'%'/'%25'}
+            annotation_output=${annotation_output//$'\n'/'%0A'}
+            annotation_output=${annotation_output//$'\r'/'%0D'}
+            echo "::error title=EC2 redeploy failed::$annotation_output"
+            exit "$exit_code"
+          fi
