@@ -127,20 +127,25 @@ jobs:
 
             printf '%s\n' "$debug_output"
 
-            annotation_output=$(
+            trace_output=$(printf '%s\n' "$output" | sed -n '1,80p')
+            trace_output=${trace_output//'%'/'%25'}
+            trace_output=${trace_output//$'\n'/'%0A'}
+            trace_output=${trace_output//$'\r'/'%0D'}
+            echo "::error title=EC2 redeploy trace::$trace_output"
+
+            state_output=$(
               {
-                printf '%s\n' "$output" | rg -i "^\+\[|error|failed|no space|permission|denied|health|unhealthy|missing|cannot|unable" || true
-                printf '%s\n' "$debug_output" | rg -i "status=|health=|exit=|error=|failed|error|unhealthy|healthy|missing|cannot|unable" || true
+                printf '%s\n' "$debug_output" | rg -i "status=|health=|exit=|error=" || true
+                printf '%s\n' "$debug_output" | rg -i "failed|error|unhealthy|healthy|missing|cannot|unable|no space|permission|denied" || true
               } | head -n 40
             )
 
-            if [ -z "$annotation_output" ]; then
-              annotation_output=$(printf '%s\n%s\n' "$output" "$debug_output" | tail -n 40)
+            if [ -n "$state_output" ]; then
+              state_output=${state_output//'%'/'%25'}
+              state_output=${state_output//$'\n'/'%0A'}
+              state_output=${state_output//$'\r'/'%0D'}
+              echo "::error title=EC2 container state::$state_output"
             fi
 
-            annotation_output=${annotation_output//'%'/'%25'}
-            annotation_output=${annotation_output//$'\n'/'%0A'}
-            annotation_output=${annotation_output//$'\r'/'%0D'}
-            echo "::error title=EC2 redeploy failed::$annotation_output"
             exit "$exit_code"
           fi
