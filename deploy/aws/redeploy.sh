@@ -36,9 +36,14 @@ fi
 
 mkdir -p "$SCRIPT_DIR/certbot/www"
 
+docker container prune -f >/dev/null 2>&1 || true
+docker image prune -af >/dev/null 2>&1 || true
+docker builder prune -af >/dev/null 2>&1 || true
+
 for archive in "$BACKEND_ARCHIVE" "$FRONTEND_ARCHIVE"; do
   if [ -f "$archive" ]; then
     gunzip -c "$archive" | docker load >/dev/null
+    rm -f "$archive"
   fi
 done
 
