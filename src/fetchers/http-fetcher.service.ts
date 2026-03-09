@@ -293,13 +293,19 @@ function shouldAttemptMirrorFallback(
     return false;
   }
 
+  if (!shouldAttemptBrowserFallback(fetchError)) {
+    return false;
+  }
+
   const browserFetchError = browserError instanceof HttpFetchError
     ? browserError
     : toHttpFetchError(browserError);
 
   return (
-    shouldAttemptBrowserFallback(fetchError) &&
-    (browserFetchError.antiBotDetected || browserFetchError.status === 307 || browserFetchError.status === 403)
+    browserFetchError.antiBotDetected ||
+    browserFetchError.status === 307 ||
+    browserFetchError.status === 403 ||
+    browserFetchError.status === 0
   );
 }
 
