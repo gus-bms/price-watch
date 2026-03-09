@@ -94,3 +94,23 @@
 ## 2026-03-07 10:09:14 KST
 - Request: Commit the worker-recovery and card-height changes, then push `main`.
 - Status: done
+
+## 2026-03-08 19:44:52 KST
+- Request: Investigate why the Farfetch item shows in stock in Price Watch and identify where server logs are stored.
+- Status: done
+
+## 2026-03-08 19:56:59 KST
+- Request: Check the deployed server data for the Farfetch stock-status mismatch and confirm whether the app is currently running as a Nest server.
+- Status: approved
+
+## 2026-03-09 21:12:54 KST
+- Request: Investigate the `307` error occurring for the `RRL lot 271 black` item.
+- Status: done
+
+## 2026-03-09 21:12:54 KST
+- Request: Implement a stable fetch strategy for anti-bot protected product pages.
+- Status: done
+
+## 2026-03-09 21:37:57 KST
+- Request: Deploy the anti-bot browser-fallback changes to the AWS environment.
+- Status: approved

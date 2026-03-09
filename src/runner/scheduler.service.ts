@@ -1,5 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
-import { HttpFetcherService } from "../fetchers/http-fetcher.service";
+import { HttpFetchError, HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { ConsoleNotifierService } from "../notifiers/console-notifier.service";
 import { PriceParserService } from "../parsers/price-parser.service";
 import { StateService } from "../storage/state.service";
@@ -90,6 +90,7 @@ export class SchedulerService implements OnModuleDestroy {
     let parsedPrice: number | undefined;
     let errorMessage: string | undefined;
     let responseContentType: string | undefined;
+    let httpStatus: number | undefined;
 
     itemState.lastCheckedAt = startedAt;
 
@@ -181,6 +182,10 @@ export class SchedulerService implements OnModuleDestroy {
       itemState.failures = 0;
     } catch (error) {
       itemState.failures = Number(itemState.failures ?? 0) + 1;
+      if (error instanceof HttpFetchError) {
+        responseContentType = error.contentType;
+        httpStatus = error.status;
+      }
       errorMessage = error instanceof Error ? error.message : String(error);
       itemState.lastError = errorMessage;
     }
@@ -196,7 +201,8 @@ export class SchedulerService implements OnModuleDestroy {
       success: errorMessage === undefined,
       parsedPrice,
       errorMessage,
-      responseContentType
+      responseContentType,
+      httpStatus
     });
 
     return itemState;

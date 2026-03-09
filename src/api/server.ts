@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import { DatabaseService } from "../database/database.service";
-import { HttpFetcherService } from "../fetchers/http-fetcher.service";
+import { HttpFetchError, HttpFetcherService } from "../fetchers/http-fetcher.service";
 import { GeminiService } from "../llm/gemini.service";
 import { LlmKeyService } from "../llm/llm-key.service";
 import { ParserGeneratorService } from "../llm/parser-generator.service";
@@ -340,6 +340,9 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
           throw new Error(parserErrors[parserErrors.length - 1] ?? "no parser candidates");
         } catch (error) {
           const finishedAt = Date.now();
+          if (error instanceof HttpFetchError) {
+            contentType = error.contentType;
+          }
           const message = error instanceof Error ? error.message : String(error);
 
           await itemsService.recordCheckFailure({
@@ -528,6 +531,7 @@ export async function startApiServer(): Promise<{ close: () => Promise<void> }> 
         });
       });
 
+      await fetcher.close();
       await database.onModuleDestroy();
     }
   };

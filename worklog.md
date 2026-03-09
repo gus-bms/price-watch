@@ -196,3 +196,45 @@
   - Pushed the commit to `origin/main` so the deployment workflow can pick up the new compose/redeploy config.
 - Files touched: `requirements.md`, `worklog.md`, `.env.example`, `deploy/aws/docker-compose.yml`, `deploy/aws/redeploy.sh`, `ui/src/App.module.css`
 - Result: completed
+
+## 2026-03-08 19:44:52 KST
+- Task: Investigate Farfetch stock-status mismatch and confirm server log location.
+- Changes:
+  - Added the investigation request to `requirements.md` and completed it after review.
+  - Traced stock-status flow through API, worker, parser persistence, and item-card UI.
+  - Confirmed the fetch path uses plain server-side `fetch` and that AWS deploy logs are emitted to container stdout/stderr under Docker Compose.
+  - Confirmed the local DB has no Farfetch watch item, so the live mismatch is on the deployed/server dataset rather than local state.
+- Files touched: `requirements.md`, `worklog.md`
+- Result: completed
+
+## 2026-03-08 19:56:59 KST
+- Task: Check the deployed AWS data for the Farfetch stock mismatch and verify whether runtime is a Nest HTTP server.
+- Changes:
+  - Added the new server-inspection request to `requirements.md`.
+  - Confirmed from code and image config that the API container starts with `node dist/main.js --api`, while the worker uses the Nest application context path.
+  - Attempted direct SSH to `ec2-user@15.165.15.175` twice from the current environment; both attempts timed out on port `22`, so the live DB rows could not be inspected.
+  - Verified the public deployment still responds at `https://price-watch.duckdns.org/api/health`.
+- Files touched: `requirements.md`, `worklog.md`
+- Result: blocked (SSH/network access to AWS server unavailable from current environment)
+
+## 2026-03-09 21:12:54 KST
+- Task: Diagnose the `307` error on the `RRL lot 271 black` item and improve failure diagnostics.
+- Changes:
+  - Confirmed the local watch item `118dc63f-5dfe-4118-a667-1502875e5d84` was failing repeatedly with `HTTP 307 Forbidden` in `watch_check_run`.
+  - Reproduced the response from `www.ralphlauren.co.kr` and identified the body as a `PerimeterX` access-denied page rather than the product page.
+  - Added `HttpFetchError` classification in the fetcher so blocked/HTTP error responses include the page title and anti-bot marker in the stored error message.
+  - Propagated fetch error metadata through the scheduler and API check path so failed checks retain the response content type and worker check runs can store the HTTP status.
+  - Verified with `npm run typecheck` and repeated fetcher probes after the change.
+- Files touched: `requirements.md`, `worklog.md`, `src/fetchers/http-fetcher.service.ts`, `src/runner/scheduler.service.ts`, `src/api/server.ts`
+- Result: completed
+
+## 2026-03-09 21:12:54 KST
+- Task: Implement a stable browser-backed fetch fallback for anti-bot protected product pages.
+- Changes:
+  - Added `playwright-core` and browser executable auto-detection so the fetcher can fall back to a real Chromium/Chrome instance when plain HTTP is blocked.
+  - Updated `HttpFetcherService` to use browser-like HTTP headers, detect anti-bot responses even on `200`, and retry via a shared headless browser before failing.
+  - Added browser cleanup to the API server shutdown path and installed Chromium in the production Docker image.
+  - Added optional `BROWSER_EXECUTABLE_PATH` documentation to `.env.example`.
+  - Verified with `npm run typecheck`, `npm run build`, and repeated fetches against the Ralph Lauren KR product page returning the real product HTML.
+- Files touched: `requirements.md`, `worklog.md`, `package.json`, `package-lock.json`, `Dockerfile`, `.env.example`, `src/fetchers/http-fetcher.service.ts`, `src/api/server.ts`
+- Result: completed
