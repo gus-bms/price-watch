@@ -17,6 +17,13 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
+RUN apk add --no-cache \
+  chromium \
+  freetype \
+  harfbuzz \
+  nss \
+  ttf-freefont
+
 # Only copy production dependencies
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
