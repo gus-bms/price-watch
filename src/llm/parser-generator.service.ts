@@ -188,7 +188,7 @@ export class ParserGeneratorService {
       });
       testRun.currentPrice = currentPrice;
       
-      let isOutOfStock = false;
+      let isOutOfStock: boolean | undefined = undefined;
       if (parsers.stockPattern) {
          isOutOfStock = this.priceParser.parseOutOfStock(html, {
              outOfStockPattern: parsers.stockPattern,
@@ -204,7 +204,9 @@ export class ParserGeneratorService {
          }
       }
       
-      testRun.isOutOfStock = isOutOfStock;
+      if (isOutOfStock !== undefined) {
+        testRun.isOutOfStock = isOutOfStock;
+      }
     } catch (e) {
       testRun.error = e instanceof Error ? e.message : String(e);
     }

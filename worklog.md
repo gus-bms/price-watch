@@ -238,3 +238,25 @@
   - Verified with `npm run typecheck`, `npm run build`, and repeated fetches against the Ralph Lauren KR product page returning the real product HTML.
 - Files touched: `requirements.md`, `worklog.md`, `package.json`, `package-lock.json`, `Dockerfile`, `.env.example`, `src/fetchers/http-fetcher.service.ts`, `src/api/server.ts`
 - Result: completed
+
+## 2026-03-09 21:37:57 KST
+- Task: Deploy the anti-bot browser-fallback changes to AWS.
+- Changes:
+  - Added the deploy request to `requirements.md`.
+  - Committed the fetch fallback changes on `main` as `761d12b` (`feat: add browser fallback for blocked product pages`) and pushed to `origin/main`.
+  - Triggered the existing GitHub Actions workflow `Deploy AWS EC2` and confirmed run `#6` completed successfully for commit `761d12b017ab5f008ddb230e8f3b9b1bfbd4d438`.
+  - Confirmed the deployment job `Build and Redeploy to EC2` completed successfully and the public health endpoint still returns `{\"ok\":true}`.
+- Files touched: `requirements.md`, `worklog.md`, git history
+- Result: completed
+
+## 2026-03-09 21:54:14 KST
+- Task: Diagnose the Farfetch sold-out mismatch and prevent unknown stock from appearing purchasable.
+- Changes:
+  - Reconfirmed the likely mismatch path in code: LLM parser save could persist `is_out_of_stock = 0`, and later checks could leave that stale value in place when stock was not actually detectable.
+  - Changed the LLM test-run logic to leave stock as unknown unless a stock parser or target-size parser produced evidence.
+  - Updated the worker check path to clear stale stock/size state before each successful parse so unknown results no longer keep an old `false`.
+  - Updated API check persistence so successful checks write `NULL` for unknown stock instead of preserving the previous value.
+  - Updated the item-card UI to show `재고 미확인` for size-tracked items with unknown stock, instead of presenting them like normal purchasable items.
+  - Verified with backend `npm run typecheck` and frontend `cd ui && npm run build`.
+- Files touched: `requirements.md`, `worklog.md`, `src/llm/parser-generator.service.ts`, `src/runner/scheduler.service.ts`, `src/api/watch-items.service.ts`, `ui/src/features/watch-item/components/WatchItemCard.tsx`, `ui/src/App.module.css`
+- Result: completed

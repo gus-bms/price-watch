@@ -108,6 +108,8 @@ export class SchedulerService implements OnModuleDestroy {
 
       // ── 품절/재고 감지 ───────────────────────────────────────────────────
       const prevOutOfStock = itemState.isOutOfStock;
+      itemState.isOutOfStock = undefined;
+      itemState.sizeStockJson = undefined;
 
       if (item.stockParser) {
         itemState.isOutOfStock = this.parser.parseOutOfStock(body, {
