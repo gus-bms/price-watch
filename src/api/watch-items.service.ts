@@ -503,11 +503,7 @@ export class WatchItemsService {
   }
 
   async recordCheckSuccess(input: CheckSuccessInput): Promise<void> {
-    const updateStockSyntax = input.isOutOfStock !== undefined 
-        ? `, is_out_of_stock = ${input.isOutOfStock ? 1 : 0}` 
-        : "";
-    const insertStockCol = input.isOutOfStock !== undefined ? ", is_out_of_stock" : "";
-    const insertStockVal = input.isOutOfStock !== undefined ? `, ${input.isOutOfStock ? 1 : 0}` : "";
+    const stockValue = input.isOutOfStock === undefined ? null : (input.isOutOfStock ? 1 : 0);
 
     await this.database.withTransaction(async (connection) => {
       await connection.execute(
@@ -520,8 +516,9 @@ export class WatchItemsService {
           last_matched_parser_id,
           last_confidence,
           last_verified_by_recheck,
-          updated_at${insertStockCol}
-        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, NOW(3)${insertStockVal})
+          is_out_of_stock,
+          updated_at
+        ) VALUES (?, 0, NULL, ?, ?, ?, ?, ?, ?, NOW(3))
         ON DUPLICATE KEY UPDATE
           failures = 0,
           last_error = NULL,
@@ -530,14 +527,16 @@ export class WatchItemsService {
           last_matched_parser_id = VALUES(last_matched_parser_id),
           last_confidence = VALUES(last_confidence),
           last_verified_by_recheck = VALUES(last_verified_by_recheck),
-          updated_at = NOW(3)${updateStockSyntax}`,
+          is_out_of_stock = VALUES(is_out_of_stock),
+          updated_at = NOW(3)`,
         [
           input.itemId,
           input.price,
           new Date(input.finishedAt),
           input.matchedParserId ?? null,
           input.confidence,
-          input.verifiedByRecheck
+          input.verifiedByRecheck,
+          stockValue
         ]
       );
 

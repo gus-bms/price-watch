@@ -12,11 +12,18 @@ type WatchItemCardProps = {
 
 export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: WatchItemCardProps) {
   const isOutOfStock = item.isOutOfStock === true;
-  const isBelowTarget = item.lastPrice !== undefined && item.lastPrice <= item.targetPrice && !isOutOfStock;
+  const isStockUnknown = Boolean(item.size) && item.isOutOfStock === undefined;
+  const isBelowTarget =
+    !isStockUnknown &&
+    item.lastPrice !== undefined &&
+    item.lastPrice <= item.targetPrice &&
+    !isOutOfStock;
 
   const badgeClassName = `${styles.badge} ${
     item.lastError
       ? styles.badgeRed
+      : isStockUnknown
+        ? styles.badgeAmber
       : isOutOfStock
         ? styles.badgeRed
         : isBelowTarget
@@ -26,6 +33,8 @@ export function WatchItemCard({ item, checking, onCheck, onEdit, onDelete }: Wat
 
   const badgeText = item.lastError
     ? "오류"
+    : isStockUnknown
+      ? "재고 미확인"
     : isOutOfStock
       ? "재입고 대기중"
       : isBelowTarget

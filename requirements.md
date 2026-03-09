@@ -113,4 +113,12 @@
 
 ## 2026-03-09 21:37:57 KST
 - Request: Deploy the anti-bot browser-fallback changes to the AWS environment.
+- Status: done
+
+## 2026-03-09 21:54:14 KST
+- Request: Verify why the Farfetch item still shows purchasable when size M is currently sold out.
+- Status: done
+
+## 2026-03-09 22:02:51 KST
+- Request: Deploy the Farfetch stale-stock fix to the AWS environment.
 - Status: approved
