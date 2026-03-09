@@ -105,8 +105,9 @@ jobs:
           set -euo pipefail
           set +e
           output=$(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
+            export PS4="+[\${LINENO}] "
             chmod +x ~/price-watch-deploy/redeploy.sh
-            ~/price-watch-deploy/redeploy.sh
+            bash -x ~/price-watch-deploy/redeploy.sh
           ' 2>&1)
           exit_code=$?
           set -e
@@ -117,6 +118,7 @@ jobs:
             debug_output=$(ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$EC2_USER@$EC2_HOST" '
               set -e
               docker compose -f ~/price-watch-deploy/docker-compose.yml --env-file ~/price-watch-deploy/.env ps || true
+              docker inspect --format "{{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} exit={{.State.ExitCode}} error={{.State.Error}}" pw-backend pw-worker pw-frontend pw-mysql 2>/dev/null || true
               docker logs pw-backend --tail 80 || true
               docker logs pw-worker --tail 80 || true
               docker logs pw-frontend --tail 80 || true
@@ -125,7 +127,17 @@ jobs:
 
             printf '%s\n' "$debug_output"
 
-            annotation_output=$(printf '%s\n%s\n' "$output" "$debug_output" | tail -n 40)
+            annotation_output=$(
+              {
+                printf '%s\n' "$output" | rg -i "^\+\[|error|failed|no space|permission|denied|health|unhealthy|missing|cannot|unable" || true
+                printf '%s\n' "$debug_output" | rg -i "status=|health=|exit=|error=|failed|error|unhealthy|healthy|missing|cannot|unable" || true
+              } | head -n 40
+            )
+
+            if [ -z "$annotation_output" ]; then
+              annotation_output=$(printf '%s\n%s\n' "$output" "$debug_output" | tail -n 40)
+            fi
+
             annotation_output=${annotation_output//'%'/'%25'}
             annotation_output=${annotation_output//$'\n'/'%0A'}
             annotation_output=${annotation_output//$'\r'/'%0D'}
